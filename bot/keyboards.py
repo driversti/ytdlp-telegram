@@ -12,6 +12,8 @@ QUALITY_PREFIX = "quality:"
 CONFIRM_PREFIX = "confirm:"
 CANCEL_PREFIX = "cancel:"
 DELETE_PREFIX = "delete:"
+ACCESS_PREFIX = "access:"
+ADMIN_PREFIX = "admin:"
 
 
 def format_selection_keyboard() -> InlineKeyboardMarkup:
@@ -149,6 +151,25 @@ def file_delete_keyboard(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🗑️ Delete from server", callback_data=f"{DELETE_PREFIX}{token}"),
+        ]
+    ])
+
+
+def request_access_keyboard() -> InlineKeyboardMarkup:
+    """Create keyboard with request access button for unauthorized users."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔐 Request Access", callback_data=f"{ACCESS_PREFIX}request"),
+        ]
+    ])
+
+
+def admin_access_decision_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    """Create keyboard for admin to approve/deny access request."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Approve", callback_data=f"{ADMIN_PREFIX}approve:{telegram_id}"),
+            InlineKeyboardButton("❌ Deny", callback_data=f"{ADMIN_PREFIX}deny:{telegram_id}"),
         ]
     ])
 

@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bot Logs - YT-DLP</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
+    <script>
+        // Apply theme before page renders to prevent flash
+        (function() {
+            const theme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
 </head>
 <body>
     <div class="container">
@@ -13,16 +20,27 @@
             <div class="header-left">
                 <h1>Bot Logs</h1>
                 <a href="/" class="nav-link">Files</a>
+                <a href="/admin" class="nav-link">Admin</a>
             </div>
-            <div class="stats">
-                <span class="stat" id="log-size">{{ "%.2f"|format(stats.file_size_mb) }} MB</span>
-                <span class="stat" id="log-status">
-                    {% if stats.exists %}
-                        <span class="status-dot status-ok"></span> Live
-                    {% else %}
-                        <span class="status-dot status-error"></span> No log file
-                    {% endif %}
-                </span>
+            <div class="header-right">
+                <div class="stats">
+                    <span class="stat" id="log-size">{{ "%.2f"|format(stats.file_size_mb) }} MB</span>
+                    <span class="stat" id="log-status">
+                        {% if stats.exists %}
+                            <span class="status-dot status-ok"></span> Live
+                        {% else %}
+                            <span class="status-dot status-error"></span> No log file
+                        {% endif %}
+                    </span>
+                </div>
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -54,6 +72,14 @@
     </div>
 
     <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
         const logContainer = document.getElementById('log-container');
         const levelFilter = document.getElementById('level-filter');
         const searchInput = document.getElementById('search-input');

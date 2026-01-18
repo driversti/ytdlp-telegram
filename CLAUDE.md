@@ -53,17 +53,19 @@ This allows deploying test builds without incrementing the actual version number
 - **`bot/llm_service.py`** - Ollama integration for intent parsing with heuristics fallback (5-min TTL cache)
 - **`bot/storage.py`** - Platform detection (regex-based), file management, and URL validation
 - **`bot/keyboards.py`** - Inline keyboard builders for format/quality selection
-- **`bot/middleware.py`** - `@whitelist_only` decorator for user authentication
+- **`bot/middleware.py`** - `@whitelist_only` decorator for hybrid user authentication
 - **`bot/file_server_client.py`** - HTTP client for file server API (large file links)
 - **`bot/stats_service.py`** - SQLite-based download history and statistics tracking
+- **`bot/user_service.py`** - SQLite-based user management (access requests, approvals)
 
 ### File Server (`file-server/`)
 
-FastAPI service for serving large downloads (>50MB):
-- **`main.py`** - FastAPI app with Jinja2 templates
+FastAPI service for serving large downloads (>50MB) and admin UI:
+- **`main.py`** - FastAPI app with Jinja2 templates, session auth, admin routes
 - **`config.py`** - Environment config
 - **`services/token_service.py`** - UUID token generation, JSON storage
 - **`services/file_service.py`** - File listing, deletion, metadata
+- **`services/user_service.py`** - User database access for admin UI
 
 ### Data Flow
 
@@ -88,18 +90,21 @@ User message → Whitelist check → Intent parsing (LLM/heuristics)
 ### Callback Data Format
 
 Inline keyboard callbacks use: `"prefix:action"` (e.g., `quality:video_best`)
-- Prefixes: `format:`, `quality:`, `confirm:`, `cancel:`, `delete:`
+- Prefixes: `format:`, `quality:`, `confirm:`, `cancel:`, `delete:`, `access:`, `admin:`
 - URLs are stored in `context.user_data['pending_url']` to avoid Telegram's 64-byte callback limit
 - Delete callbacks store the file token as action: `delete:{token}`
-- **Important:** Callbacks that don't need `pending_url` (like `DELETE_PREFIX`, `CANCEL_PREFIX`) must be handled BEFORE the URL check in `handle_callback()`
+- Admin callbacks include target user: `admin:approve:{telegram_id}` or `admin:deny:{telegram_id}`
+- **Important:** Callbacks that don't need `pending_url` (like `DELETE_PREFIX`, `CANCEL_PREFIX`, `ACCESS_PREFIX`, `ADMIN_PREFIX`) must be handled BEFORE the URL check in `handle_callback()`
 
 ## Configuration
 
 Required environment variables:
 - `TELEGRAM_BOT_TOKEN` - From @BotFather
-- `ALLOWED_USER_IDS` - Comma-separated user IDs
+- `ALLOWED_USER_IDS` - Comma-separated user IDs (env-based whitelist, always allowed)
 
 Optional:
+- `ADMIN_USER_ID` - Telegram ID to receive access request notifications
+- `ADMIN_PASSWORD` - Password for web admin UI at `/admin`
 - `OLLAMA_URL` (default: http://localhost:11434)
 - `OLLAMA_MODEL` (default: llama3.2:3b)
 - `DOWNLOAD_PATH` (default: /downloads)
@@ -130,6 +135,10 @@ Optional:
 - **Root folder:** `/home/jetson/docker/ytdlp-telegram`
 - **Ollama:** Runs locally on the Jetson at `http://192.168.10.10:11434`
 
+### Claude Code Skills
+
+- `/deploy-test` - Build and deploy test containers to Jetson with auto-incrementing `-testN` version suffix. Builds multi-arch images, pushes to registry, updates docker-compose.yml on Jetson, and verifies deployment. Always asks for confirmation before deploying.
+
 ## Testing
 
 ```bash
@@ -152,6 +161,33 @@ Test structure:
 - `/status` - View active downloads and queue status
 - `/stats` - View download statistics and history
 - `/health` - System health check (disk, Ollama, file server)
+
+## User Management
+
+The bot uses hybrid authorization:
+1. **Environment whitelist** (`ALLOWED_USER_IDS`) - Always allowed, cannot be removed via UI
+2. **Database users** (`.users.db`) - Can be added/removed via admin UI or Telegram
+
+### Access Request Flow
+```
+Unauthorized user sends message → Bot shows "Request Access" button
+User clicks button → Request saved to DB (status: pending)
+                  → Admin receives Telegram notification with Approve/Deny buttons
+Admin approves → User marked approved in DB → User receives welcome message
+```
+
+### Web Admin UI
+- URL: `{FILE_SERVER_PUBLIC_URL}/admin`
+- Password protected (set `ADMIN_PASSWORD`)
+- Features:
+  - View env users (cannot modify)
+  - View/remove database users
+  - View/approve/deny pending requests
+  - Add user by Telegram ID
+
+### Database
+- Location: `{DOWNLOAD_PATH}/.users.db`
+- Table: `users` with fields: telegram_id, username, first_name, last_name, status, source, timestamps
 
 ## Current Limitations
 

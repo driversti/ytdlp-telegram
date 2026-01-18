@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - YT-DLP</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
+    <script>
+        // Apply theme before page renders to prevent flash
+        (function() {
+            const theme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1>User Management</h1>
+                <a href="/" class="nav-link">Files</a>
+                <a href="/logs" class="nav-link">Logs</a>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+                <a href="/admin/logout" class="btn btn-logout">Logout</a>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <div class="admin-tabs">
+            <button class="tab-btn active" data-tab="users">Allowed Users</button>
+            <button class="tab-btn" data-tab="pending">
+                Pending Requests
+                {% if pending_requests %}
+                <span class="badge">{{ pending_requests|length }}</span>
+                {% endif %}
+            </button>
+            <button class="tab-btn" data-tab="denied">
+                Denied Users
+                {% if denied_users %}
+                <span class="badge">{{ denied_users|length }}</span>
+                {% endif %}
+            </button>
+            <button class="tab-btn" data-tab="add">Add User</button>
+        </div>
+
+        <!-- Allowed Users Tab -->
+        <div id="users-tab" class="tab-content active">
+            <section class="admin-section">
+                <h2 class="section-header">Environment Users (ALLOWED_USER_IDS)</h2>
+                <p class="section-description">These users are defined in the environment variable and cannot be modified here.</p>
+                {% if env_user_ids %}
+                <div class="user-list">
+                    {% for user_id in env_user_ids %}
+                    <div class="user-card">
+                        <div class="user-info">
+                            <div class="user-id">{{ user_id }}</div>
+                            <span class="badge badge-env">env</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No environment users configured.</p>
+                </div>
+                {% endif %}
+            </section>
+
+            <section class="admin-section">
+                <h2 class="section-header">Database Users</h2>
+                <p class="section-description">Users added via this admin panel or approved access requests.</p>
+                {% if db_approved_users %}
+                <div class="user-list">
+                    {% for user in db_approved_users %}
+                    <div class="user-card" data-telegram-id="{{ user.telegram_id }}">
+                        <div class="user-info">
+                            <div class="user-name">{{ user.display_name }}</div>
+                            <div class="user-meta">
+                                <span class="user-id">{{ user.telegram_id }}</span>
+                                {% if user.username %}
+                                <a href="https://t.me/{{ user.username }}" target="_blank" class="user-username">@{{ user.username }}</a>
+                                {% endif %}
+                                <span class="badge badge-db">{{ user.source }}</span>
+                            </div>
+                        </div>
+                        <div class="user-actions">
+                            <button class="btn btn-delete" onclick="removeUser({{ user.telegram_id }}, this)">Remove</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No database users yet.</p>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <!-- Pending Requests Tab -->
+        <div id="pending-tab" class="tab-content">
+            <section class="admin-section">
+                <h2 class="section-header">Pending Access Requests</h2>
+                {% if pending_requests %}
+                <div class="user-list">
+                    {% for user in pending_requests %}
+                    <div class="user-card pending" data-telegram-id="{{ user.telegram_id }}">
+                        <div class="user-info">
+                            <div class="user-name">
+                                {% if user.first_name %}{{ user.first_name }}{% endif %}
+                                {% if user.last_name %} {{ user.last_name }}{% endif %}
+                                {% if not user.first_name and not user.last_name %}User {{ user.telegram_id }}{% endif %}
+                            </div>
+                            <div class="user-meta">
+                                <span class="user-id">{{ user.telegram_id }}</span>
+                                {% if user.username %}
+                                <a href="https://t.me/{{ user.username }}" target="_blank" class="user-username">@{{ user.username }}</a>
+                                {% endif %}
+                                <span class="user-date">Requested: {{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                            </div>
+                        </div>
+                        <div class="user-actions">
+                            <button class="btn btn-approve" onclick="approveUser({{ user.telegram_id }}, this)">Approve</button>
+                            <button class="btn btn-deny" onclick="denyUser({{ user.telegram_id }}, this)">Deny</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No pending requests.</p>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <!-- Denied Users Tab -->
+        <div id="denied-tab" class="tab-content">
+            <section class="admin-section">
+                <h2 class="section-header">Denied Users</h2>
+                <p class="section-description">Users whose access requests were denied. You can approve them to grant access.</p>
+                {% if denied_users %}
+                <div class="user-list">
+                    {% for user in denied_users %}
+                    <div class="user-card denied" data-telegram-id="{{ user.telegram_id }}">
+                        <div class="user-info">
+                            <div class="user-name">
+                                {% if user.first_name %}{{ user.first_name }}{% endif %}
+                                {% if user.last_name %} {{ user.last_name }}{% endif %}
+                                {% if not user.first_name and not user.last_name %}User {{ user.telegram_id }}{% endif %}
+                            </div>
+                            <div class="user-meta">
+                                <span class="user-id">{{ user.telegram_id }}</span>
+                                {% if user.username %}
+                                <a href="https://t.me/{{ user.username }}" target="_blank" class="user-username">@{{ user.username }}</a>
+                                {% endif %}
+                                <span class="user-date">Denied: {{ user.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                            </div>
+                        </div>
+                        <div class="user-actions">
+                            <button class="btn btn-approve" onclick="approveDeniedUser({{ user.telegram_id }}, this)">Approve</button>
+                            <button class="btn btn-delete" onclick="removeDeniedUser({{ user.telegram_id }}, this)">Remove</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No denied users.</p>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <!-- Add User Tab -->
+        <div id="add-tab" class="tab-content">
+            <section class="admin-section">
+                <h2 class="section-header">Add User by Telegram ID</h2>
+                <p class="section-description">Add a user directly without them requesting access.</p>
+                <form id="add-user-form" class="add-user-form" onsubmit="addUser(event)">
+                    <div class="form-group">
+                        <label for="telegram_id">Telegram User ID</label>
+                        <input type="number" id="telegram_id" name="telegram_id" required placeholder="e.g., 123456789">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add User</button>
+                </form>
+                <div id="add-user-message" class="message-container"></div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Remove active class from all tabs and content
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                // Add active class to clicked tab and corresponding content
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab + '-tab').classList.add('active');
+            });
+        });
+
+        async function addUser(event) {
+            event.preventDefault();
+            const telegramId = document.getElementById('telegram_id').value;
+            const messageContainer = document.getElementById('add-user-message');
+
+            try {
+                const response = await fetch('/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: parseInt(telegramId) }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    messageContainer.innerHTML = '<div class="alert alert-success">User added successfully!</div>';
+                    document.getElementById('telegram_id').value = '';
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    messageContainer.innerHTML = `<div class="alert alert-error">${data.detail}</div>`;
+                }
+            } catch (err) {
+                messageContainer.innerHTML = `<div class="alert alert-error">Network error: ${err.message}</div>`;
+            }
+        }
+
+        async function removeUser(telegramId, button) {
+            if (!confirm('Are you sure you want to remove this user?')) return;
+
+            button.disabled = true;
+            button.textContent = 'Removing...';
+
+            try {
+                const response = await fetch(`/api/admin/users/${telegramId}`, {
+                    method: 'DELETE',
+                });
+
+                if (response.ok) {
+                    const card = button.closest('.user-card');
+                    card.style.opacity = '0';
+                    setTimeout(() => card.remove(), 300);
+                } else {
+                    const data = await response.json();
+                    alert(data.detail || 'Failed to remove user');
+                    button.disabled = false;
+                    button.textContent = 'Remove';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Remove';
+            }
+        }
+
+        async function approveUser(telegramId, button) {
+            button.disabled = true;
+            button.textContent = 'Approving...';
+
+            try {
+                const response = await fetch(`/api/admin/users/${telegramId}/approve`, {
+                    method: 'POST',
+                });
+
+                if (response.ok) {
+                    const card = button.closest('.user-card');
+                    card.style.opacity = '0';
+                    setTimeout(() => {
+                        card.remove();
+                        updatePendingBadge();
+                    }, 300);
+                } else {
+                    const data = await response.json();
+                    alert(data.detail || 'Failed to approve user');
+                    button.disabled = false;
+                    button.textContent = 'Approve';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Approve';
+            }
+        }
+
+        async function denyUser(telegramId, button) {
+            if (!confirm('Are you sure you want to deny this user?')) return;
+
+            button.disabled = true;
+            button.textContent = 'Denying...';
+
+            try {
+                const response = await fetch(`/api/admin/users/${telegramId}/deny`, {
+                    method: 'POST',
+                });
+
+                if (response.ok) {
+                    const card = button.closest('.user-card');
+                    card.style.opacity = '0';
+                    setTimeout(() => {
+                        card.remove();
+                        updatePendingBadge();
+                    }, 300);
+                } else {
+                    const data = await response.json();
+                    alert(data.detail || 'Failed to deny user');
+                    button.disabled = false;
+                    button.textContent = 'Deny';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Deny';
+            }
+        }
+
+        function updatePendingBadge() {
+            const pendingCount = document.querySelectorAll('#pending-tab .user-card').length;
+            const badge = document.querySelector('.tab-btn[data-tab="pending"] .badge');
+            if (badge) {
+                if (pendingCount === 0) {
+                    badge.remove();
+                } else {
+                    badge.textContent = pendingCount;
+                }
+            }
+        }
+
+        function updateDeniedBadge() {
+            const deniedCount = document.querySelectorAll('#denied-tab .user-card').length;
+            const badge = document.querySelector('.tab-btn[data-tab="denied"] .badge');
+            if (badge) {
+                if (deniedCount === 0) {
+                    badge.remove();
+                } else {
+                    badge.textContent = deniedCount;
+                }
+            }
+        }
+
+        async function approveDeniedUser(telegramId, button) {
+            button.disabled = true;
+            button.textContent = 'Approving...';
+
+            try {
+                const response = await fetch(`/api/admin/users/${telegramId}/approve`, {
+                    method: 'POST',
+                });
+
+                if (response.ok) {
+                    const card = button.closest('.user-card');
+                    card.style.opacity = '0';
+                    setTimeout(() => {
+                        card.remove();
+                        updateDeniedBadge();
+                    }, 300);
+                } else {
+                    const data = await response.json();
+                    alert(data.detail || 'Failed to approve user');
+                    button.disabled = false;
+                    button.textContent = 'Approve';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Approve';
+            }
+        }
+
+        async function removeDeniedUser(telegramId, button) {
+            if (!confirm('Are you sure you want to remove this user from the denied list?')) return;
+
+            button.disabled = true;
+            button.textContent = 'Removing...';
+
+            try {
+                const response = await fetch(`/api/admin/users/${telegramId}`, {
+                    method: 'DELETE',
+                });
+
+                if (response.ok) {
+                    const card = button.closest('.user-card');
+                    card.style.opacity = '0';
+                    setTimeout(() => {
+                        card.remove();
+                        updateDeniedBadge();
+                    }, 300);
+                } else {
+                    const data = await response.json();
+                    alert(data.detail || 'Failed to remove user');
+                    button.disabled = false;
+                    button.textContent = 'Remove';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Remove';
+            }
+        }
+    </script>
+</body>
+</html>

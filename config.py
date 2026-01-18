@@ -13,6 +13,7 @@ class Config:
 
     telegram_bot_token: str
     allowed_user_ids: set[int]
+    admin_user_id: int | None
     ollama_url: str
     ollama_model: str
     download_path: str
@@ -36,9 +37,13 @@ class Config:
         if allowed_ids_str:
             allowed_ids = {int(uid.strip()) for uid in allowed_ids_str.split(",") if uid.strip()}
 
+        admin_user_id_str = os.getenv("ADMIN_USER_ID", "")
+        admin_user_id = int(admin_user_id_str) if admin_user_id_str.strip() else None
+
         return cls(
             telegram_bot_token=token,
             allowed_user_ids=allowed_ids,
+            admin_user_id=admin_user_id,
             ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2:3b"),
             download_path=os.getenv("DOWNLOAD_PATH", "/downloads"),

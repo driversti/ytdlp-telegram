@@ -22,12 +22,15 @@ from bot.keyboards import (
     dynamic_audio_quality_keyboard,
     playlist_confirmation_keyboard,
     file_delete_keyboard,
+    admin_access_decision_keyboard,
     parse_callback_data,
     FORMAT_PREFIX,
     QUALITY_PREFIX,
     CONFIRM_PREFIX,
     CANCEL_PREFIX,
     DELETE_PREFIX,
+    ACCESS_PREFIX,
+    ADMIN_PREFIX,
 )
 from bot.downloader import (
     Downloader,
@@ -42,6 +45,7 @@ from bot.storage import is_file_within_limit, get_file_size_mb, cleanup_file, de
 from bot.file_server_client import file_server_client
 from bot.llm_service import llm_service
 from bot.stats_service import stats_service
+from bot.user_service import user_service
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -307,6 +311,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Failed to delete file", show_alert=True)
         return
 
+    if prefix == ACCESS_PREFIX:
+        await handle_access_callback(query, context, action)
+        return
+
+    if prefix == ADMIN_PREFIX:
+        await handle_admin_callback(query, context, action)
+        return
+
     # Now check for pending_url (only needed for format/quality/confirm)
     url = context.user_data.get('pending_url')
     if not url:
@@ -358,6 +370,136 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=format_selection_keyboard(),
                 parse_mode="Markdown"
             )
+
+
+async def handle_access_callback(query, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Handle access request callbacks."""
+    config = get_config()
+    user = query.from_user
+
+    if action == "request":
+        # Check if user already has a pending request
+        existing_status = user_service.get_user_status(user.id)
+        if existing_status == "pending":
+            await query.edit_message_text(
+                "⏳ You already have a pending access request.\n"
+                "You'll be notified when an admin reviews your request."
+            )
+            return
+
+        # Create access request
+        created = user_service.create_access_request(
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+        )
+
+        if created:
+            await query.edit_message_text(
+                "✅ Access request submitted!\n\n"
+                "You'll be notified when an admin reviews your request."
+            )
+
+            # Notify admin
+            if config.admin_user_id:
+                user_info = f"*User:* {user.first_name or ''} {user.last_name or ''}".strip()
+                if user.username:
+                    user_info += f" (@{user.username})"
+                user_info += f"\n*ID:* `{user.id}`"
+
+                try:
+                    await context.bot.send_message(
+                        chat_id=config.admin_user_id,
+                        text=(
+                            "🔔 *New Access Request*\n\n"
+                            f"{user_info}\n\n"
+                            "Review this request:"
+                        ),
+                        reply_markup=admin_access_decision_keyboard(user.id),
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    logger.exception(f"Failed to notify admin about access request from {user.id}")
+        else:
+            await query.edit_message_text(
+                "⚠️ You already have an access request on file.\n"
+                "Please wait for admin review."
+            )
+
+
+async def handle_admin_callback(query, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Handle admin decision callbacks (approve/deny)."""
+    config = get_config()
+    admin_user = query.from_user
+
+    # Verify that the user clicking is the admin
+    if admin_user.id != config.admin_user_id:
+        await query.answer("You are not authorized to perform this action.", show_alert=True)
+        return
+
+    # Parse action: approve:{telegram_id} or deny:{telegram_id}
+    parts = action.split(":", 1)
+    if len(parts) != 2:
+        await query.answer("Invalid action", show_alert=True)
+        return
+
+    decision, telegram_id_str = parts
+    try:
+        telegram_id = int(telegram_id_str)
+    except ValueError:
+        await query.answer("Invalid user ID", show_alert=True)
+        return
+
+    # Get user info before decision
+    user_record = user_service.get_user(telegram_id)
+    user_display = user_record.display_name if user_record else str(telegram_id)
+
+    if decision == "approve":
+        success = user_service.approve_user(telegram_id, admin_user.id)
+        if success:
+            await query.edit_message_text(
+                query.message.text + f"\n\n✅ *Approved* by you"
+            , parse_mode="Markdown")
+
+            # Notify the user
+            try:
+                await context.bot.send_message(
+                    chat_id=telegram_id,
+                    text=(
+                        "🎉 *Access Granted!*\n\n"
+                        "Your request has been approved. You can now use the bot.\n\n"
+                        "Send me a URL to download media, or use /help for more info."
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                logger.exception(f"Failed to notify user {telegram_id} about approval")
+        else:
+            await query.answer("Failed to approve user", show_alert=True)
+
+    elif decision == "deny":
+        success = user_service.deny_user(telegram_id, admin_user.id)
+        if success:
+            await query.edit_message_text(
+                query.message.text + f"\n\n❌ *Denied* by you"
+            , parse_mode="Markdown")
+
+            # Notify the user
+            try:
+                await context.bot.send_message(
+                    chat_id=telegram_id,
+                    text=(
+                        "⛔ *Access Denied*\n\n"
+                        "Your access request was not approved.\n"
+                        "This is a private bot for personal use only."
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                logger.exception(f"Failed to notify user {telegram_id} about denial")
+        else:
+            await query.answer("Failed to deny user", show_alert=True)
 
 
 async def _handle_format_selection(query, context, url: str, is_audio: bool):

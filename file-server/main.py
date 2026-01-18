@@ -1,17 +1,23 @@
 import logging
+import os
+import secrets
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, Form, Depends
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
+from itsdangerous import URLSafeSerializer
 
 from config import config
 from services.file_service import file_service
 from services.log_service import log_service
 from services.token_service import token_service
+from services.user_service import user_service
+from services.telegram_service import telegram_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,8 +28,13 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="YT-DLP File Server",
     description="File server for large downloads from ytdlp-telegram bot",
-    version="0.1.2",
+    version="0.1.4",
 )
+
+# Session middleware for admin authentication
+# Generate a random secret key if not provided (will change on restart)
+SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
 
 BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -190,6 +201,169 @@ async def get_logs(
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+# ============== Admin Routes ==============
+
+def is_admin_authenticated(request: Request) -> bool:
+    """Check if the admin is authenticated via session."""
+    return request.session.get("admin_authenticated", False)
+
+
+def get_env_allowed_user_ids() -> set[int]:
+    """Get allowed user IDs from environment variable."""
+    allowed_ids_str = os.getenv("ALLOWED_USER_IDS", "")
+    if not allowed_ids_str:
+        return set()
+    return {int(uid.strip()) for uid in allowed_ids_str.split(",") if uid.strip()}
+
+
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(request: Request):
+    """Render the admin login page."""
+    if is_admin_authenticated(request):
+        return RedirectResponse(url="/admin", status_code=303)
+
+    if not config.admin_password:
+        return templates.TemplateResponse(
+            "admin_login.html",
+            {
+                "request": request,
+                "error": "Admin password not configured. Set ADMIN_PASSWORD environment variable.",
+            },
+        )
+
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": None},
+    )
+
+
+@app.post("/admin/login")
+async def admin_login(request: Request, password: str = Form(...)):
+    """Handle admin login form submission."""
+    if not config.admin_password:
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    if password == config.admin_password:
+        request.session["admin_authenticated"] = True
+        return RedirectResponse(url="/admin", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": "Invalid password"},
+        status_code=401,
+    )
+
+
+@app.get("/admin/logout")
+async def admin_logout(request: Request):
+    """Handle admin logout."""
+    request.session.clear()
+    return RedirectResponse(url="/admin/login", status_code=303)
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(request: Request):
+    """Render the admin dashboard."""
+    if not is_admin_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=303)
+
+    # Get users from database
+    db_approved_users = user_service.get_approved_users()
+    pending_requests = user_service.get_pending_requests()
+    denied_users = user_service.get_denied_users()
+
+    # Get env-based allowed users
+    env_user_ids = get_env_allowed_user_ids()
+
+    # Combine for display (env users shown separately)
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "env_user_ids": sorted(env_user_ids),
+            "db_approved_users": db_approved_users,
+            "pending_requests": pending_requests,
+            "denied_users": denied_users,
+        },
+    )
+
+
+class AddUserRequest(BaseModel):
+    """Request body for adding a user."""
+    telegram_id: int
+
+
+@app.post("/api/admin/users")
+async def api_add_user(request: Request, data: AddUserRequest):
+    """Add a user via API."""
+    if not is_admin_authenticated(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Check if user is already in env whitelist
+    env_user_ids = get_env_allowed_user_ids()
+    if data.telegram_id in env_user_ids:
+        raise HTTPException(status_code=400, detail="User is already in environment whitelist")
+
+    # Check if user already exists in DB
+    existing = user_service.get_user(data.telegram_id)
+    if existing and existing.status == "approved":
+        raise HTTPException(status_code=400, detail="User is already approved")
+
+    success = user_service.add_user(data.telegram_id)
+    if success:
+        return {"success": True, "message": "User added successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="User already exists in database")
+
+
+@app.delete("/api/admin/users/{telegram_id}")
+async def api_remove_user(request: Request, telegram_id: int):
+    """Remove a user from the database."""
+    if not is_admin_authenticated(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Check if user is in env whitelist (can't remove those)
+    env_user_ids = get_env_allowed_user_ids()
+    if telegram_id in env_user_ids:
+        raise HTTPException(status_code=400, detail="Cannot remove env-based users. Edit ALLOWED_USER_IDS instead.")
+
+    success = user_service.remove_user(telegram_id)
+    if success:
+        return {"success": True, "message": "User removed successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="User not found")
+
+
+@app.post("/api/admin/users/{telegram_id}/approve")
+async def api_approve_user(request: Request, telegram_id: int):
+    """Approve a user's access request."""
+    if not is_admin_authenticated(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    success = user_service.approve_user(telegram_id)
+    if success:
+        # Notify the user via Telegram
+        await telegram_service.notify_user_approved(telegram_id)
+        return {"success": True, "message": "User approved successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="User not found or already approved")
+
+
+@app.post("/api/admin/users/{telegram_id}/deny")
+async def api_deny_user(request: Request, telegram_id: int):
+    """Deny a user's access request."""
+    if not is_admin_authenticated(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    success = user_service.deny_user(telegram_id)
+    if success:
+        # Notify the user via Telegram
+        await telegram_service.notify_user_denied(telegram_id)
+        return {"success": True, "message": "User denied successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="User not found")
 
 
 if __name__ == "__main__":
