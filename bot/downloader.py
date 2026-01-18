@@ -171,14 +171,15 @@ class Downloader:
     def _get_format_string(self, quality: DownloadQuality) -> str:
         """Get yt-dlp format string for quality."""
         format_map = {
-            DownloadQuality.AUDIO_128: "bestaudio[abr<=128]/bestaudio",
-            DownloadQuality.AUDIO_192: "bestaudio[abr<=192]/bestaudio",
-            DownloadQuality.AUDIO_320: "bestaudio[abr<=320]/bestaudio",
+            DownloadQuality.AUDIO_128: "bestaudio[abr<=128]/bestaudio/best",
+            DownloadQuality.AUDIO_192: "bestaudio[abr<=192]/bestaudio/best",
+            DownloadQuality.AUDIO_320: "bestaudio[abr<=320]/bestaudio/best",
             DownloadQuality.AUDIO_BEST: "bestaudio/best",
-            DownloadQuality.VIDEO_480: "bestvideo[height<=480]+bestaudio/best[height<=480]",
-            DownloadQuality.VIDEO_720: "bestvideo[height<=720]+bestaudio/best[height<=720]",
-            DownloadQuality.VIDEO_1080: "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-            DownloadQuality.VIDEO_BEST: "bestvideo+bestaudio/best",
+            # Prefer combined formats first to bypass YouTube SABR streaming restrictions
+            DownloadQuality.VIDEO_480: "best[height<=480]/bestvideo[height<=480]+bestaudio/best",
+            DownloadQuality.VIDEO_720: "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
+            DownloadQuality.VIDEO_1080: "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best",
+            DownloadQuality.VIDEO_BEST: "best/bestvideo+bestaudio",
         }
         return format_map.get(quality, "best")
 
@@ -219,7 +220,8 @@ class Downloader:
                 logger.error(f"Failed to get info for {url}: {e}")
                 return None
 
-        return await asyncio.get_event_loop().run_in_executor(None, _extract_info)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _extract_info)
 
     async def download(
         self,
@@ -238,6 +240,9 @@ class Downloader:
         Returns:
             DownloadResult with success status and file info
         """
+        # Capture event loop for thread-safe callbacks from executor
+        loop = asyncio.get_running_loop()
+
         is_audio = self._is_audio_format(quality)
         platform_dir = get_platform_directory(url)
 
@@ -248,6 +253,8 @@ class Downloader:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,  # Download single video by default
+            # YouTube-specific: use Android client which works without PO Token
+            "extractor_args": {"youtube": {"player_client": ["android"]}},
         }
 
         if is_audio:
@@ -273,11 +280,15 @@ class Downloader:
                     if percent - last_progress[0] >= 5:
                         last_progress[0] = percent
                         if progress_callback:
-                            asyncio.create_task(progress_callback(percent, "downloading"))
+                            loop.call_soon_threadsafe(
+                                lambda p=percent: asyncio.create_task(progress_callback(p, "downloading"))
+                            )
 
             elif d["status"] == "finished":
                 if progress_callback:
-                    asyncio.create_task(progress_callback(95, "processing"))
+                    loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(progress_callback(95, "processing"))
+                    )
 
         ydl_opts["progress_hooks"] = [progress_hook]
 
@@ -348,7 +359,7 @@ class Downloader:
                 logger.error(f"Download error: {e}")
                 return DownloadResult(success=False, error_message=str(e))
 
-        return await asyncio.get_event_loop().run_in_executor(None, _download)
+        return await loop.run_in_executor(None, _download)
 
 
 # Global queue instance

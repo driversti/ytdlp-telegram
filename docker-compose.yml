@@ -1,9 +1,19 @@
 services:
   bot:
-    build: .
+    image: registry.yurii.live/ytdlp-telegram:v0.1.1
     container_name: ytdlp-telegram-bot
     restart: unless-stopped
     env_file: .env
     volumes:
       - ./downloads:/downloads
-    network_mode: host  # To access Ollama on localhost
+    network_mode: host  # For Ollama and PO Token server on localhost
+    depends_on:
+      - pot-server
+
+  pot-server:
+    image: brainicism/bgutil-ytdlp-pot-provider
+    container_name: ytdlp-pot-server
+    restart: unless-stopped
+    init: true
+    ports:
+      - "4416:4416"
