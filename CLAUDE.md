@@ -26,6 +26,22 @@ docker compose logs -f bot
 # release.sh reads it automatically
 ```
 
+## Versioning
+
+- Version is defined in `config.py` (single source of truth)
+- `release.sh` reads the version automatically
+
+### Test Deployments on Production
+
+When testing on the production server (Jetson), use `-testN` postfixes to distinguish test builds from stable releases:
+
+- `v1.2.0` → stable production release
+- `v1.2.0-test1` → first test deployment
+- `v1.2.0-test2` → second test iteration (after fixes)
+- etc.
+
+This allows deploying test builds without incrementing the actual version number, making it easy to identify and roll back if needed.
+
 ## Architecture
 
 ### Core Components
