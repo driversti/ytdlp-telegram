@@ -54,8 +54,9 @@ User message → Whitelist check → Intent parsing (LLM/heuristics)
 
 ### Callback Data Format
 
-Inline keyboard callbacks use: `"prefix:action|url_short"` (URL truncated to 50 chars)
+Inline keyboard callbacks use: `"prefix:action"` (e.g., `quality:video_best`)
 - Prefixes: `format:`, `quality:`, `confirm:`, `cancel:`
+- URLs are stored in `context.user_data['pending_url']` to avoid Telegram's 64-byte callback limit
 
 ## Configuration
 
@@ -76,6 +77,13 @@ Optional:
 - Companion service: `bgutil-ytdlp-pot-provider` for YouTube PO Token support (port 4416)
 - Multi-arch builds: `linux/amd64`, `linux/arm64`
 - Registry: `registry.yurii.live`
+
+## Deployment
+
+- **Host:** Nvidia Jetson Orin Nano (`192.168.10.10`)
+- **SSH:** `ssh jetson@192.168.10.10`
+- **Root folder:** `/home/jetson/docker/ytdlp-telegram`
+- **Ollama:** Runs locally on the Jetson at `http://192.168.10.10:11434`
 
 ## Current Limitations
 

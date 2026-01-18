@@ -1,6 +1,6 @@
 services:
   bot:
-    image: registry.yurii.live/ytdlp-telegram:v0.1.1
+    image: registry.yurii.live/ytdlp-telegram:v0.1.2
     container_name: ytdlp-telegram-bot
     restart: unless-stopped
     env_file: .env

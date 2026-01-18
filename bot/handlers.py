@@ -38,8 +38,7 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
-# Store pending URLs and downloads by message_id
-pending_urls: dict[int, str] = {}
+# Store active downloads by message_id
 active_downloads: dict[int, dict] = {}
 
 
@@ -126,38 +125,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Use the first URL
+    # Use the first URL and store it in user_data
     url = intent.urls[0]
-    pending_urls[message.message_id] = url
+    context.user_data['pending_url'] = url
 
     # If user explicitly requested audio or video, skip format selection
     if intent.wants_audio and not intent.wants_video:
-        await show_audio_quality(message, url)
+        await show_audio_quality(message)
     elif intent.wants_video and not intent.wants_audio:
-        await show_video_quality(message, url)
+        await show_video_quality(message)
     else:
         # Show format selection
         await message.reply_text(
             "🎯 *Choose format:*",
-            reply_markup=format_selection_keyboard(url),
+            reply_markup=format_selection_keyboard(),
             parse_mode="Markdown"
         )
 
 
-async def show_audio_quality(message, url: str):
+async def show_audio_quality(message):
     """Show audio quality selection."""
     await message.reply_text(
         "🎵 *Choose audio quality:*",
-        reply_markup=audio_quality_keyboard(url),
+        reply_markup=audio_quality_keyboard(),
         parse_mode="Markdown"
     )
 
 
-async def show_video_quality(message, url: str):
+async def show_video_quality(message):
     """Show video quality selection."""
     await message.reply_text(
         "🎬 *Choose video quality:*",
-        reply_markup=video_quality_keyboard(url),
+        reply_markup=video_quality_keyboard(),
         parse_mode="Markdown"
     )
 
@@ -168,33 +167,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    prefix, action, url_short = parse_callback_data(query.data)
+    prefix, action = parse_callback_data(query.data)
 
-    # Try to get full URL from pending_urls
-    original_message_id = query.message.reply_to_message.message_id if query.message.reply_to_message else None
-    url = pending_urls.get(original_message_id, url_short)
+    # Get URL from user_data
+    url = context.user_data.get('pending_url')
 
     if prefix == CANCEL_PREFIX:
+        context.user_data.pop('pending_url', None)
         await query.edit_message_text("❌ Download cancelled.")
+        return
+
+    if not url:
+        await query.edit_message_text("❌ Session expired. Please send the URL again.")
         return
 
     if prefix == FORMAT_PREFIX:
         if action == "audio":
             await query.edit_message_text(
                 "🎵 *Choose audio quality:*",
-                reply_markup=audio_quality_keyboard(url),
+                reply_markup=audio_quality_keyboard(),
                 parse_mode="Markdown"
             )
         elif action == "video":
             await query.edit_message_text(
                 "🎬 *Choose video quality:*",
-                reply_markup=video_quality_keyboard(url),
+                reply_markup=video_quality_keyboard(),
                 parse_mode="Markdown"
             )
         elif action == "back":
             await query.edit_message_text(
                 "🎯 *Choose format:*",
-                reply_markup=format_selection_keyboard(url),
+                reply_markup=format_selection_keyboard(),
                 parse_mode="Markdown"
             )
 
@@ -212,6 +215,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         quality = quality_map.get(action)
         if quality:
+            # Clear pending URL after starting download
+            context.user_data.pop('pending_url', None)
             await start_download(query, url, quality, context)
 
     elif prefix == CONFIRM_PREFIX:
@@ -221,7 +226,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == "single":
             await query.edit_message_text(
                 "🎯 *Choose format:*",
-                reply_markup=format_selection_keyboard(url),
+                reply_markup=format_selection_keyboard(),
                 parse_mode="Markdown"
             )
 
