@@ -100,7 +100,7 @@ Optional:
   - `file-server` for large file downloads (port 8080)
 - Multi-arch builds: `linux/amd64`, `linux/arm64`
 - Registry: `registry.yurii.live`
-- File server image: `registry.yurii.live/ytdlp-file-server:v0.1.0` (built separately in `file-server/`)
+- File server image: `registry.yurii.live/ytdlp-file-server:v0.1.1` (built separately in `file-server/`)
 
 ## Deployment
 
