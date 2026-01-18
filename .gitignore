@@ -41,3 +41,5 @@ downloads/
 # Coverage
 .coverage
 htmlcov/
+.DS_Store
+

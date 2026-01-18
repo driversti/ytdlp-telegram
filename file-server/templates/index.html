@@ -10,7 +10,10 @@
 <body>
     <div class="container">
         <header>
-            <h1>YT-DLP Downloads</h1>
+            <div class="header-left">
+                <h1>YT-DLP Downloads</h1>
+                <a href="/logs" class="nav-link">Logs</a>
+            </div>
             <div class="stats">
                 <span class="stat">{{ total_files }} files</span>
                 <span class="stat">{{ "%.2f"|format(total_size_gb) }} GB</span>

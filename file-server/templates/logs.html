@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Logs - YT-DLP</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1>Bot Logs</h1>
+                <a href="/" class="nav-link">Files</a>
+            </div>
+            <div class="stats">
+                <span class="stat" id="log-size">{{ "%.2f"|format(stats.file_size_mb) }} MB</span>
+                <span class="stat" id="log-status">
+                    {% if stats.exists %}
+                        <span class="status-dot status-ok"></span> Live
+                    {% else %}
+                        <span class="status-dot status-error"></span> No log file
+                    {% endif %}
+                </span>
+            </div>
+        </header>
+
+        <div class="log-controls">
+            <div class="control-group">
+                <label for="level-filter">Level:</label>
+                <select id="level-filter">
+                    <option value="all">All</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="search-input">Search:</label>
+                <input type="text" id="search-input" placeholder="Filter logs...">
+            </div>
+            <div class="control-group">
+                <label for="auto-refresh">Auto-refresh:</label>
+                <input type="checkbox" id="auto-refresh" checked>
+            </div>
+            <button class="btn btn-refresh" id="refresh-btn">Refresh</button>
+        </div>
+
+        <div class="log-container" id="log-container">
+            <div class="log-loading">Loading logs...</div>
+        </div>
+    </div>
+
+    <script>
+        const logContainer = document.getElementById('log-container');
+        const levelFilter = document.getElementById('level-filter');
+        const searchInput = document.getElementById('search-input');
+        const autoRefresh = document.getElementById('auto-refresh');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const logSize = document.getElementById('log-size');
+
+        let refreshInterval = null;
+        let isAtBottom = true;
+
+        function getLevelClass(level) {
+            const classes = {
+                'DEBUG': 'log-debug',
+                'INFO': 'log-info',
+                'WARNING': 'log-warning',
+                'ERROR': 'log-error',
+            };
+            return classes[level] || 'log-info';
+        }
+
+        function formatEntry(entry) {
+            const levelClass = getLevelClass(entry.level);
+            const timestamp = entry.timestamp ? `<span class="log-timestamp">${entry.timestamp}</span>` : '';
+            const level = entry.level ? `<span class="log-level ${levelClass}">${entry.level}</span>` : '';
+            const logger = entry.logger ? `<span class="log-logger">${entry.logger}</span>` : '';
+            const message = `<span class="log-message">${escapeHtml(entry.message)}</span>`;
+
+            return `<div class="log-entry ${levelClass}">${timestamp}${level}${logger}${message}</div>`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function checkScrollPosition() {
+            const threshold = 50;
+            isAtBottom = logContainer.scrollHeight - logContainer.scrollTop - logContainer.clientHeight < threshold;
+        }
+
+        function scrollToBottom() {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        async function fetchLogs() {
+            const level = levelFilter.value;
+            const search = searchInput.value;
+
+            const params = new URLSearchParams();
+            params.append('lines', '500');
+            if (level && level !== 'all') params.append('level', level);
+            if (search) params.append('search', search);
+
+            try {
+                const response = await fetch(`/api/logs?${params}`);
+                if (!response.ok) throw new Error('Failed to fetch logs');
+
+                const data = await response.json();
+
+                // Update stats
+                logSize.textContent = `${data.stats.file_size_mb.toFixed(2)} MB`;
+
+                // Remember scroll position
+                checkScrollPosition();
+
+                // Render logs
+                if (data.entries.length === 0) {
+                    logContainer.innerHTML = '<div class="log-empty">No log entries found</div>';
+                } else {
+                    logContainer.innerHTML = data.entries.map(formatEntry).join('');
+
+                    // Scroll to bottom if was at bottom
+                    if (isAtBottom) {
+                        scrollToBottom();
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching logs:', err);
+                logContainer.innerHTML = `<div class="log-error-message">Error loading logs: ${err.message}</div>`;
+            }
+        }
+
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(fetchLogs, 2000);
+        }
+
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        // Event listeners
+        logContainer.addEventListener('scroll', checkScrollPosition);
+
+        levelFilter.addEventListener('change', fetchLogs);
+
+        let searchTimeout = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(fetchLogs, 300);
+        });
+
+        autoRefresh.addEventListener('change', () => {
+            if (autoRefresh.checked) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        });
+
+        refreshBtn.addEventListener('click', () => {
+            fetchLogs();
+            scrollToBottom();
+        });
+
+        // Initial load
+        fetchLogs().then(scrollToBottom);
+
+        // Start auto-refresh if checked
+        if (autoRefresh.checked) {
+            startAutoRefresh();
+        }
+    </script>
+</body>
+</html>

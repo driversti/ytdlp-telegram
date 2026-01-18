@@ -8,6 +8,8 @@ and 1000+ other sites supported by yt-dlp.
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from telegram.ext import Application
 
@@ -16,10 +18,31 @@ from bot.handlers import register_handlers
 from bot.storage import ensure_directories_exist
 
 # Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Setup root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Console handler (for docker logs)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+root_logger.addHandler(console_handler)
+
+
+def setup_file_logging(download_path: str):
+    """Setup file logging with rotation."""
+    log_file = Path(download_path) / "bot.log"
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=5 * 1024 * 1024,  # 5MB per file
+        backupCount=3,  # Keep 3 backup files (~20MB total max)
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    root_logger.addHandler(file_handler)
+    return log_file
+
 
 # Reduce noise from httpx
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -37,6 +60,10 @@ def main():
 
     # Ensure download directories exist
     ensure_directories_exist()
+
+    # Setup file logging after directories exist
+    log_file = setup_file_logging(config.download_path)
+    logger.info(f"Log file: {log_file}")
 
     logger.info("Starting ytdlp-telegram bot...")
     logger.info(f"Allowed users: {config.allowed_user_ids}")

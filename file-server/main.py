@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from config import config
 from services.file_service import file_service
+from services.log_service import log_service
 from services.token_service import token_service
 
 logging.basicConfig(
@@ -155,6 +156,34 @@ async def cleanup_orphaned():
     """Clean up tokens for files that no longer exist."""
     removed = token_service.cleanup_orphaned_tokens()
     return {"removed": removed}
+
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request):
+    """Render the logs viewer web UI."""
+    stats = log_service.get_log_stats()
+    return templates.TemplateResponse(
+        "logs.html",
+        {
+            "request": request,
+            "stats": stats.to_dict(),
+        },
+    )
+
+
+@app.get("/api/logs")
+async def get_logs(
+    lines: int = 200,
+    level: str | None = None,
+    search: str | None = None,
+):
+    """Get log entries as JSON for polling."""
+    entries = log_service.read_logs(lines=lines, level_filter=level, search=search)
+    stats = log_service.get_log_stats()
+    return {
+        "entries": [e.to_dict() for e in entries],
+        "stats": stats.to_dict(),
+    }
 
 
 @app.get("/health")

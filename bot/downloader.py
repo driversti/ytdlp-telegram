@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -8,6 +9,9 @@ from typing import Callable, Optional, Union
 from collections import deque
 
 import yt_dlp
+
+# Dedicated thread pool for downloads to avoid default executor issues
+_download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ytdlp")
 
 from bot.storage import get_platform_directory, sanitize_filename, get_file_size_mb
 from config import get_config
@@ -145,52 +149,35 @@ class DynamicQuality:
 
 
 class DownloadQueue:
-    """Concurrent download queue with position tracking using semaphore."""
+    """Simple sequential download queue - one download at a time."""
 
-    def __init__(self, max_concurrent: int = 2):
+    def __init__(self, max_concurrent: int = 1):
         self._queue: deque[DownloadTask] = deque()
-        self._active_tasks: dict[int, DownloadTask] = {}  # message_id -> task
+        self._current_task: Optional[DownloadTask] = None
         self._lock = asyncio.Lock()
         self._processing = False
-        self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._max_concurrent = max_concurrent
-        self._task_counter = 0
-
-    @property
-    def _current_task(self) -> Optional[DownloadTask]:
-        """Compatibility property - returns first active task or None."""
-        if self._active_tasks:
-            return next(iter(self._active_tasks.values()))
-        return None
+        self._max_concurrent = 1  # Force sequential
 
     @property
     def active_count(self) -> int:
         """Number of currently active downloads."""
-        return len(self._active_tasks)
+        return 1 if self._current_task else 0
 
     async def add(self, task: DownloadTask) -> int:
-        """
-        Add a task to the queue.
-
-        Returns:
-            Position in queue (1-based, 0 means processing immediately)
-        """
+        """Add a task to the queue."""
         async with self._lock:
-            self._task_counter += 1
-            task_id = self._task_counter
             self._queue.append(task)
+            queue_position = len(self._queue)
 
             # Start processor if not running
             if not self._processing:
                 self._processing = True
                 asyncio.create_task(self._process_queue())
 
-            # Calculate position: queue length + any tasks ahead
-            queue_position = len(self._queue)
-            # If we're at capacity, show queue position
-            if self.active_count >= self._max_concurrent:
-                return queue_position
-            return 0
+            # Return position (0 if we're first and nothing is running)
+            if self._current_task is None and queue_position == 1:
+                return 0
+            return queue_position
 
     async def get_position(self, chat_id: int, message_id: int) -> int:
         """Get position of a task in queue."""
@@ -206,50 +193,24 @@ class DownloadQueue:
             return self.active_count, len(self._queue)
 
     async def _process_queue(self):
-        """Process tasks in the queue with concurrent downloads."""
+        """Process tasks sequentially - one at a time."""
         while True:
-            # Wait for a semaphore slot
-            await self._semaphore.acquire()
-
             async with self._lock:
                 if not self._queue:
-                    self._semaphore.release()
-                    # Check if there are still active tasks
-                    if not self._active_tasks:
-                        self._processing = False
-                        return
-                    continue
+                    self._processing = False
+                    self._current_task = None
+                    return
 
                 task = self._queue.popleft()
+                self._current_task = task
 
-            # Execute in a separate task to allow concurrency
-            asyncio.create_task(self._execute_download_wrapper(task))
-
-            # Small delay to prevent tight loop
-            await asyncio.sleep(0.01)
-
-    async def _execute_download_wrapper(self, task: DownloadTask):
-        """Wrapper to execute download and release semaphore when done."""
-        try:
-            async with self._lock:
-                self._active_tasks[task.message_id] = task
-
-            await self._execute_download(task)
-
-        except Exception:
-            logger.exception("Error processing download task")
-        finally:
-            async with self._lock:
-                self._active_tasks.pop(task.message_id, None)
-            self._semaphore.release()
-
-            # Check if we need to continue processing
-            async with self._lock:
-                if self._queue and not any(
-                    asyncio.iscoroutine(t) for t in asyncio.all_tasks()
-                    if hasattr(t, 'get_name') and 'process_queue' in str(t.get_name())
-                ):
-                    asyncio.create_task(self._process_queue())
+            try:
+                await self._execute_download(task)
+            except Exception:
+                logger.exception(f"Error processing download task for: {task.original_url}")
+            finally:
+                async with self._lock:
+                    self._current_task = None
 
     async def _execute_download(self, task: DownloadTask):
         """Execute a single download task."""
@@ -267,10 +228,13 @@ class DownloadQueue:
 
         # Notify completion through callback with result
         if task.progress_callback:
-            if result.success:
-                await task.progress_callback(100, f"complete|{result.filepath}|{result.title}|{result.filesize_mb}")
-            else:
-                await task.progress_callback(-1, f"error|{result.error_message}")
+            try:
+                if result.success:
+                    await task.progress_callback(100, f"complete|{result.filepath}|{result.title}|{result.filesize_mb}")
+                else:
+                    await task.progress_callback(-1, f"error|{result.error_message}")
+            except Exception:
+                logger.exception(f"Error in progress callback for {task.original_url}")
 
 
 # URL detection regex
@@ -543,9 +507,10 @@ class Downloader:
         logger.info(f"Starting download: url={url}, quality={quality}, format_string={format_string}")
 
         # Prepare yt-dlp options
+        # Include video ID in filename to avoid collisions (Instagram videos have same titles)
         ydl_opts = {
             "format": format_string,
-            "outtmpl": str(platform_dir / "%(title)s.%(ext)s"),
+            "outtmpl": str(platform_dir / "%(title)s_%(id)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,  # Download single video by default
@@ -573,7 +538,8 @@ class Downloader:
         last_progress = [0]
 
         def progress_hook(d):
-            if d["status"] == "downloading":
+            status = d.get("status", "unknown")
+            if status == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
                 downloaded = d.get("downloaded_bytes", 0)
 
@@ -587,7 +553,7 @@ class Downloader:
                                 lambda p=percent: asyncio.create_task(progress_callback(p, "downloading"))
                             )
 
-            elif d["status"] == "finished":
+            elif status == "finished":
                 if progress_callback:
                     loop.call_soon_threadsafe(
                         lambda: asyncio.create_task(progress_callback(95, "processing"))
@@ -597,7 +563,8 @@ class Downloader:
 
         def _download():
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl = yt_dlp.YoutubeDL(ydl_opts)
+                try:
                     info = ydl.extract_info(url, download=True)
 
                     if info is None:
@@ -653,6 +620,7 @@ class Downloader:
                             )
 
                     filesize_mb = get_file_size_mb(filepath)
+                    logger.info(f"Download completed: {title} ({filesize_mb:.1f} MB)")
 
                     return DownloadResult(
                         success=True,
@@ -661,9 +629,12 @@ class Downloader:
                         duration=duration,
                         filesize_mb=filesize_mb,
                     )
+                finally:
+                    ydl.close()
 
             except yt_dlp.utils.DownloadError as e:
                 error_msg = str(e)
+                logger.warning(f"Download failed for {url}: {error_msg}")
                 # Clean up common error messages
                 if "Video unavailable" in error_msg:
                     error_msg = "Video is unavailable or private"
@@ -674,10 +645,10 @@ class Downloader:
 
                 return DownloadResult(success=False, error_message=error_msg)
             except Exception:
-                logger.exception("Download error")
+                logger.exception(f"Unexpected download error for {url}")
                 return DownloadResult(success=False, error_message="Unexpected download error")
 
-        return await loop.run_in_executor(None, _download)
+        return await loop.run_in_executor(_download_executor, _download)
 
 
 # Global queue instance - default to 2 concurrent downloads
