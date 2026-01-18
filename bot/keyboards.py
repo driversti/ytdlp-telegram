@@ -6,6 +6,7 @@ FORMAT_PREFIX = "format:"
 QUALITY_PREFIX = "quality:"
 CONFIRM_PREFIX = "confirm:"
 CANCEL_PREFIX = "cancel:"
+DELETE_PREFIX = "delete:"
 
 
 def format_selection_keyboard() -> InlineKeyboardMarkup:
@@ -74,6 +75,15 @@ def playlist_confirmation_keyboard(count: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}download"),
+        ]
+    ])
+
+
+def file_delete_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Create keyboard with delete button for large files."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🗑️ Delete from server", callback_data=f"{DELETE_PREFIX}{token}"),
         ]
     ])
 

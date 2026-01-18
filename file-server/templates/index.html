@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YT-DLP Downloads</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>YT-DLP Downloads</h1>
+            <div class="stats">
+                <span class="stat">{{ total_files }} files</span>
+                <span class="stat">{{ "%.2f"|format(total_size_gb) }} GB</span>
+            </div>
+        </header>
+
+        {% if files_by_platform %}
+            {% for platform, files in files_by_platform.items() %}
+            <section class="platform-section">
+                <h2 class="platform-header">
+                    <span class="platform-icon">{{ get_platform_icon(platform) }}</span>
+                    {{ platform|capitalize }}
+                    <span class="file-count">({{ files|length }})</span>
+                </h2>
+                <div class="file-list">
+                    {% for file in files %}
+                    <div class="file-card" data-token="{{ file.token or '' }}">
+                        <div class="file-info">
+                            <div class="file-name" title="{{ file.filename }}">{{ file.filename }}</div>
+                            <div class="file-meta">
+                                <span class="file-size">{{ "%.1f"|format(file.size_mb) }} MB</span>
+                                <span class="file-date">{{ file.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            {% if file.token %}
+                            <a href="/d/{{ file.token }}" class="btn btn-download" download>Download</a>
+                            <button class="btn btn-delete" onclick="deleteFile('{{ file.token }}', this)">Delete</button>
+                            {% else %}
+                            <button class="btn btn-generate" onclick="generateToken('{{ file.filepath }}', this)">Generate Link</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">
+                <p>No downloaded files yet.</p>
+                <p>Send a URL to the Telegram bot to get started!</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        async function deleteFile(token, button) {
+            if (!confirm('Are you sure you want to delete this file?')) {
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = 'Deleting...';
+
+            try {
+                const response = await fetch(`/api/files/${token}`, {
+                    method: 'DELETE',
+                });
+
+                if (response.ok) {
+                    const card = button.closest('.file-card');
+                    card.style.opacity = '0';
+                    setTimeout(() => card.remove(), 300);
+                    updateStats();
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Failed to delete file');
+                    button.disabled = false;
+                    button.textContent = 'Delete';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Delete';
+            }
+        }
+
+        async function generateToken(filepath, button) {
+            button.disabled = true;
+            button.textContent = 'Generating...';
+
+            try {
+                const response = await fetch('/api/tokens', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ filepath }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const card = button.closest('.file-card');
+                    card.dataset.token = data.token;
+
+                    const actionsDiv = button.parentElement;
+                    actionsDiv.innerHTML = `
+                        <a href="/d/${data.token}" class="btn btn-download" download>Download</a>
+                        <button class="btn btn-delete" onclick="deleteFile('${data.token}', this)">Delete</button>
+                    `;
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Failed to generate token');
+                    button.disabled = false;
+                    button.textContent = 'Generate Link';
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+                button.disabled = false;
+                button.textContent = 'Generate Link';
+            }
+        }
+
+        function updateStats() {
+            const cards = document.querySelectorAll('.file-card');
+            const totalFiles = cards.length;
+
+            const statSpans = document.querySelectorAll('.stat');
+            if (statSpans.length > 0) {
+                statSpans[0].textContent = `${totalFiles} files`;
+            }
+
+            document.querySelectorAll('.platform-section').forEach(section => {
+                const sectionCards = section.querySelectorAll('.file-card');
+                if (sectionCards.length === 0) {
+                    section.remove();
+                } else {
+                    const countSpan = section.querySelector('.file-count');
+                    if (countSpan) {
+                        countSpan.textContent = `(${sectionCards.length})`;
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

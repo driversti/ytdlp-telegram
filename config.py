@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
-__version__ = "0.1.2"
+__version__ = "0.1.5"
 
 load_dotenv()
 
@@ -17,6 +17,8 @@ class Config:
     ollama_model: str
     download_path: str
     max_file_size_mb: int
+    file_server_url: str
+    file_server_public_url: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -37,6 +39,8 @@ class Config:
             ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2:3b"),
             download_path=os.getenv("DOWNLOAD_PATH", "/downloads"),
             max_file_size_mb=int(os.getenv("MAX_FILE_SIZE_MB", "50")),
+            file_server_url=os.getenv("FILE_SERVER_URL", "http://localhost:8080"),
+            file_server_public_url=os.getenv("FILE_SERVER_PUBLIC_URL", "http://localhost:8080"),
         )
 
     @property

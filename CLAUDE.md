@@ -35,13 +35,26 @@ docker compose logs -f bot
 - **`bot/storage.py`** - Platform detection (regex-based) and file management
 - **`bot/keyboards.py`** - Inline keyboard builders for format/quality selection
 - **`bot/middleware.py`** - `@whitelist_only` decorator for user authentication
+- **`bot/file_server_client.py`** - HTTP client for file server API (large file links)
+
+### File Server (`file-server/`)
+
+FastAPI service for serving large downloads (>50MB):
+- **`main.py`** - FastAPI app with Jinja2 templates
+- **`config.py`** - Environment config
+- **`services/token_service.py`** - UUID token generation, JSON storage
+- **`services/file_service.py`** - File listing, deletion, metadata
 
 ### Data Flow
 
 ```
 User message → Whitelist check → Intent parsing (LLM/heuristics)
 → Format keyboard → Quality keyboard → DownloadTask created
-→ Queue processing → yt-dlp execution → Send file or notify
+→ Queue processing → yt-dlp execution
+  → File ≤50MB: Send via Telegram
+  → File >50MB: Generate token → Send download link + delete button
+                         ↓
+                  File Server (FastAPI)
 ```
 
 ### Key Patterns
@@ -55,8 +68,9 @@ User message → Whitelist check → Intent parsing (LLM/heuristics)
 ### Callback Data Format
 
 Inline keyboard callbacks use: `"prefix:action"` (e.g., `quality:video_best`)
-- Prefixes: `format:`, `quality:`, `confirm:`, `cancel:`
+- Prefixes: `format:`, `quality:`, `confirm:`, `cancel:`, `delete:`
 - URLs are stored in `context.user_data['pending_url']` to avoid Telegram's 64-byte callback limit
+- Delete callbacks store the file token as action: `delete:{token}`
 
 ## Configuration
 
@@ -69,12 +83,17 @@ Optional:
 - `OLLAMA_MODEL` (default: llama3.2:3b)
 - `DOWNLOAD_PATH` (default: /downloads)
 - `MAX_FILE_SIZE_MB` (default: 50)
+- `FILE_SERVER_URL` (default: http://localhost:8080) - Internal URL for bot→server
+- `FILE_SERVER_PUBLIC_URL` (default: http://localhost:8080) - Public URL for download links
+- `FILE_SERVER_PORT` (default: 8080) - Port for file server
 
 ## Docker Setup
 
 - Uses `python:3.11-slim` with FFmpeg
 - Network mode `host` for local Ollama access
-- Companion service: `bgutil-ytdlp-pot-provider` for YouTube PO Token support (port 4416)
+- Companion services:
+  - `bgutil-ytdlp-pot-provider` for YouTube PO Token support (port 4416)
+  - `file-server` for large file downloads (port 8080)
 - Multi-arch builds: `linux/amd64`, `linux/arm64`
 - Registry: `registry.yurii.live`
 
@@ -90,4 +109,3 @@ Optional:
 - Playlist downloads not yet implemented (keyboard exists, logic is TODO)
 - No concurrent downloads (sequential queue only)
 - No test suite
-- Files >50MB saved to disk but can't be sent via Telegram API

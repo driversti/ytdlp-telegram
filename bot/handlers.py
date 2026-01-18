@@ -19,11 +19,13 @@ from bot.keyboards import (
     audio_quality_keyboard,
     video_quality_keyboard,
     playlist_confirmation_keyboard,
+    file_delete_keyboard,
     parse_callback_data,
     FORMAT_PREFIX,
     QUALITY_PREFIX,
     CONFIRM_PREFIX,
     CANCEL_PREFIX,
+    DELETE_PREFIX,
 )
 from bot.downloader import (
     Downloader,
@@ -33,6 +35,7 @@ from bot.downloader import (
     extract_urls,
 )
 from bot.storage import is_file_within_limit, get_file_size_mb, cleanup_file
+from bot.file_server_client import file_server_client
 from bot.llm_service import llm_service
 from config import get_config
 
@@ -169,14 +172,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prefix, action = parse_callback_data(query.data)
 
-    # Get URL from user_data
-    url = context.user_data.get('pending_url')
-
+    # Handle callbacks that don't need pending_url first
     if prefix == CANCEL_PREFIX:
         context.user_data.pop('pending_url', None)
         await query.edit_message_text("❌ Download cancelled.")
         return
 
+    if prefix == DELETE_PREFIX:
+        token = action
+        success = await file_server_client.delete_file(token)
+        if success:
+            await query.edit_message_text(
+                query.message.text + "\n\n🗑️ File deleted from server."
+            )
+        else:
+            await query.answer("Failed to delete file", show_alert=True)
+        return
+
+    # Now check for pending_url (only needed for format/quality/confirm)
+    url = context.user_data.get('pending_url')
     if not url:
         await query.edit_message_text("❌ Session expired. Please send the URL again.")
         return
@@ -275,7 +289,7 @@ async def start_download(query, url: str, quality: DownloadQuality, context: Con
                     text=f"❌ Download failed:\n{error_msg}"
                 )
         except Exception as e:
-            logger.error(f"Error in progress callback: {e}")
+            logger.exception(f"Error in progress callback: {e}")
 
     # Create and queue task
     task = DownloadTask(
@@ -340,17 +354,33 @@ async def handle_download_complete(bot, chat_id: int, message_id: int, filepath:
                 text=f"✅ Downloaded but couldn't send:\n{title}\n📁 Size: {filesize_mb:.1f} MB\n📍 Saved to: {filepath}"
             )
     else:
-        # File too large for Telegram
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=(
-                f"✅ Downloaded: {title}\n"
-                f"📁 Size: {filesize_mb:.1f} MB\n\n"
-                f"⚠️ File exceeds {config.max_file_size_mb}MB limit.\n"
-                f"📍 Saved to: {filepath}"
+        # File too large for Telegram - generate download link
+        download_link = await file_server_client.generate_download_link(str(filepath))
+
+        if download_link:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=(
+                    f"✅ Downloaded: {title}\n"
+                    f"📁 Size: {filesize_mb:.1f} MB\n\n"
+                    f"⚠️ File exceeds {config.max_file_size_mb}MB Telegram limit.\n\n"
+                    f"📥 Download: {download_link.url}"
+                ),
+                reply_markup=file_delete_keyboard(download_link.token),
             )
-        )
+        else:
+            # Fallback if file server is unavailable
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=(
+                    f"✅ Downloaded: {title}\n"
+                    f"📁 Size: {filesize_mb:.1f} MB\n\n"
+                    f"⚠️ File exceeds {config.max_file_size_mb}MB limit.\n"
+                    f"📍 Saved to: {filepath}"
+                )
+            )
 
 
 def create_progress_bar(percent: float, length: int = 10) -> str:
