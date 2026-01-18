@@ -12,7 +12,7 @@ services:
       - file-server
 
   file-server:
-    image: registry.yurii.live/ytdlp-file-server:v0.1.1
+    image: registry.yurii.live/ytdlp-file-server:v0.1.2
     container_name: ytdlp-file-server
     restart: unless-stopped
     env_file: .env

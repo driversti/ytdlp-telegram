@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="YT-DLP File Server",
     description="File server for large downloads from ytdlp-telegram bot",
-    version="0.1.0",
+    version="0.1.2",
 )
 
 BASE_DIR = Path(__file__).parent
