@@ -21,6 +21,9 @@ docker compose logs -f bot
 
 # Build and push multi-arch image
 ./release.sh
+
+# Version is single source of truth in config.py
+# release.sh reads it automatically
 ```
 
 ## Architecture
@@ -71,6 +74,7 @@ Inline keyboard callbacks use: `"prefix:action"` (e.g., `quality:video_best`)
 - Prefixes: `format:`, `quality:`, `confirm:`, `cancel:`, `delete:`
 - URLs are stored in `context.user_data['pending_url']` to avoid Telegram's 64-byte callback limit
 - Delete callbacks store the file token as action: `delete:{token}`
+- **Important:** Callbacks that don't need `pending_url` (like `DELETE_PREFIX`, `CANCEL_PREFIX`) must be handled BEFORE the URL check in `handle_callback()`
 
 ## Configuration
 
@@ -96,6 +100,7 @@ Optional:
   - `file-server` for large file downloads (port 8080)
 - Multi-arch builds: `linux/amd64`, `linux/arm64`
 - Registry: `registry.yurii.live`
+- File server image: `registry.yurii.live/ytdlp-file-server:v0.1.0` (built separately in `file-server/`)
 
 ## Deployment
 
@@ -109,3 +114,10 @@ Optional:
 - Playlist downloads not yet implemented (keyboard exists, logic is TODO)
 - No concurrent downloads (sequential queue only)
 - No test suite
+
+## Troubleshooting
+
+- Check bot logs: `docker compose logs -f bot`
+- Check file server logs: `docker compose logs -f file-server`
+- "Session expired" on callbacks → check handler ordering in `handle_callback()`
+- Use `logger.exception()` instead of `logger.error()` to capture full tracebacks
