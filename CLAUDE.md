@@ -49,12 +49,13 @@ This allows deploying test builds without incrementing the actual version number
 - **`main.py`** - Entry point, initializes Telegram application and registers handlers
 - **`config.py`** - Frozen dataclass loading from environment variables
 - **`bot/handlers.py`** - Telegram message/command/callback handlers, orchestrates the download flow
-- **`bot/downloader.py`** - yt-dlp wrapper with async download queue (sequential FIFO processing)
-- **`bot/llm_service.py`** - Ollama integration for intent parsing with heuristics fallback
-- **`bot/storage.py`** - Platform detection (regex-based) and file management
+- **`bot/downloader.py`** - yt-dlp wrapper with async concurrent download queue (semaphore-based)
+- **`bot/llm_service.py`** - Ollama integration for intent parsing with heuristics fallback (5-min TTL cache)
+- **`bot/storage.py`** - Platform detection (regex-based), file management, and URL validation
 - **`bot/keyboards.py`** - Inline keyboard builders for format/quality selection
 - **`bot/middleware.py`** - `@whitelist_only` decorator for user authentication
 - **`bot/file_server_client.py`** - HTTP client for file server API (large file links)
+- **`bot/stats_service.py`** - SQLite-based download history and statistics tracking
 
 ### File Server (`file-server/`)
 
@@ -106,6 +107,10 @@ Optional:
 - `FILE_SERVER_URL` (default: http://localhost:8080) - Internal URL for bot→server
 - `FILE_SERVER_PUBLIC_URL` (default: http://localhost:8080) - Public URL for download links
 - `FILE_SERVER_PORT` (default: 8080) - Port for file server
+- `MAX_CONCURRENT_DOWNLOADS` (default: 2) - Number of simultaneous downloads
+- `DOWNLOAD_TIMEOUT` (default: 1800) - Download timeout in seconds (30 min)
+- `FORMAT_DETECTION_TIMEOUT` (default: 30) - Format detection timeout in seconds
+- `LLM_TIMEOUT` (default: 30) - LLM request timeout in seconds
 
 ## Docker Setup
 
@@ -125,11 +130,33 @@ Optional:
 - **Root folder:** `/home/jetson/docker/ytdlp-telegram`
 - **Ollama:** Runs locally on the Jetson at `http://192.168.10.10:11434`
 
+## Testing
+
+```bash
+# Run tests
+uv run python -m pytest tests/ -v
+
+# Run with coverage
+uv run python -m pytest tests/ --cov=bot --cov-report=term-missing
+```
+
+Test structure:
+- `tests/unit/` - Unit tests for core modules (storage, llm_service, downloader, keyboards)
+- `tests/integration/` - Integration tests (to be added)
+- `tests/file_server/` - File server tests (to be added)
+
+## Bot Commands
+
+- `/start` - Welcome message and quick help
+- `/help` - Detailed usage instructions
+- `/status` - View active downloads and queue status
+- `/stats` - View download statistics and history
+- `/health` - System health check (disk, Ollama, file server)
+
 ## Current Limitations
 
-- Playlist downloads not yet implemented (keyboard exists, logic is TODO)
-- No concurrent downloads (sequential queue only)
-- No test suite
+- Large playlist downloads (100+ items) may be slow due to sequential processing
+- No scheduled downloads feature
 
 ## Troubleshooting
 

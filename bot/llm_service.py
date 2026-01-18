@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,9 @@ from config import get_config
 from bot.downloader import extract_urls
 
 logger = logging.getLogger(__name__)
+
+# Cache TTL for LLM availability check (in seconds)
+LLM_AVAILABILITY_CACHE_TTL = 300  # 5 minutes
 
 
 @dataclass
@@ -30,20 +34,33 @@ class LLMService:
     def __init__(self):
         self.config = get_config()
         self._available: Optional[bool] = None
+        self._available_checked_at: float = 0.0
+
+    def _is_cache_valid(self) -> bool:
+        """Check if the cached availability status is still valid."""
+        if self._available is None:
+            return False
+        return (time.monotonic() - self._available_checked_at) < LLM_AVAILABILITY_CACHE_TTL
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the availability cache, forcing a recheck on next call."""
+        self._available = None
+        self._available_checked_at = 0.0
 
     async def is_available(self) -> bool:
-        """Check if Ollama is available."""
-        if self._available is not None:
+        """Check if Ollama is available (with TTL caching)."""
+        if self._is_cache_valid():
             return self._available
 
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{self.config.ollama_url}/api/tags")
                 self._available = response.status_code == 200
-        except Exception as e:
+        except (httpx.RequestError, httpx.TimeoutException) as e:
             logger.warning(f"Ollama not available: {e}")
             self._available = False
 
+        self._available_checked_at = time.monotonic()
         return self._available
 
     async def parse_intent(self, message: str) -> ParsedIntent:

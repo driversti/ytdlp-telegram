@@ -34,12 +34,14 @@ from bot.downloader import (
     DownloadQuality,
     DynamicQuality,
     DownloadTask,
+    PlaylistInfo,
     download_queue,
     extract_urls,
 )
-from bot.storage import is_file_within_limit, get_file_size_mb, cleanup_file
+from bot.storage import is_file_within_limit, get_file_size_mb, cleanup_file, detect_platform
 from bot.file_server_client import file_server_client
 from bot.llm_service import llm_service
+from bot.stats_service import stats_service
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -65,7 +67,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• \"grab this video <url>\"\n\n"
         "Commands:\n"
         "/help - Show this help message\n"
-        "/status - Check queue status"
+        "/status - Check queue status\n"
+        "/stats - View download statistics"
     )
 
 
@@ -95,15 +98,108 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @whitelist_only
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command."""
-    queue_size = len(download_queue._queue)
-    current = "Yes" if download_queue._current_task else "No"
+    active, queued = await download_queue.get_queue_status()
 
     await update.message.reply_text(
         f"📊 *Queue Status*\n\n"
-        f"Currently downloading: {current}\n"
-        f"Items in queue: {queue_size}",
+        f"Active downloads: {active}/{download_queue._max_concurrent}\n"
+        f"Items in queue: {queued}",
         parse_mode="Markdown"
     )
+
+
+@whitelist_only
+async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /health command - show system health status."""
+    import shutil
+    from pathlib import Path
+
+    config = get_config()
+    text = "🏥 *System Health*\n\n"
+
+    # Queue status
+    active, queued = await download_queue.get_queue_status()
+    text += "*Download Queue:*\n"
+    text += f"• Active: {active}/{download_queue._max_concurrent}\n"
+    text += f"• Queued: {queued}\n\n"
+
+    # Disk space
+    download_path = Path(config.download_path)
+    if download_path.exists():
+        total, used, free = shutil.disk_usage(download_path)
+        free_gb = free / (1024**3)
+        used_gb = used / (1024**3)
+        total_gb = total / (1024**3)
+        usage_percent = (used / total) * 100
+
+        text += "*Disk Space:*\n"
+        text += f"• Free: {free_gb:.1f} GB\n"
+        text += f"• Used: {used_gb:.1f} GB ({usage_percent:.0f}%)\n"
+        text += f"• Total: {total_gb:.1f} GB\n\n"
+    else:
+        text += "*Disk Space:* ⚠️ Download path not found\n\n"
+
+    # Ollama status
+    text += "*Ollama LLM:*\n"
+    try:
+        ollama_available = await llm_service.is_available()
+        if ollama_available:
+            text += f"• Status: ✅ Connected\n"
+            text += f"• Model: {config.ollama_model}\n\n"
+        else:
+            text += f"• Status: ❌ Disconnected\n\n"
+    except Exception:
+        text += f"• Status: ❌ Error checking\n\n"
+
+    # File server status
+    text += "*File Server:*\n"
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{config.file_server_url}/health")
+            if response.status_code == 200:
+                text += f"• Status: ✅ Connected\n"
+            else:
+                text += f"• Status: ⚠️ Error ({response.status_code})\n"
+    except Exception:
+        text += f"• Status: ❌ Disconnected\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+@whitelist_only
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /stats command - show download statistics."""
+    user_id = update.effective_user.id
+    overall = stats_service.get_overall_stats()
+    user_stats = stats_service.get_user_stats(user_id)
+
+    text = "📈 *Download Statistics*\n\n"
+
+    # Overall stats
+    text += "*Overall:*\n"
+    text += f"• Total downloads: {overall.total_downloads}\n"
+    text += f"• Total size: {overall.total_size_mb:.1f} MB\n"
+    text += f"• This month: {overall.downloads_this_month} downloads ({overall.size_this_month_mb:.1f} MB)\n\n"
+
+    # Platform breakdown
+    if overall.platforms:
+        text += "*By platform:*\n"
+        for platform, count in list(overall.platforms.items())[:5]:
+            text += f"• {platform.capitalize()}: {count}\n"
+        text += "\n"
+
+    # User stats
+    if user_stats:
+        text += f"*Your stats:*\n"
+        text += f"• Downloads: {user_stats.total_downloads}\n"
+        text += f"• Total size: {user_stats.total_size_mb:.1f} MB\n"
+        text += f"• Audio: {user_stats.audio_downloads} | Video: {user_stats.video_downloads}\n"
+        text += f"• Favorite platform: {user_stats.favorite_platform.capitalize()}\n"
+    else:
+        text += "_You haven't downloaded anything yet!_"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 @whitelist_only
@@ -134,6 +230,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Use the first URL and store it in user_data
     url = intent.urls[0]
     context.user_data['pending_url'] = url
+
+    # Check if it's a playlist
+    status_msg = await message.reply_text("⏳ Checking URL...")
+    downloader = Downloader()
+    media_info = await downloader.get_info(url)
+
+    if media_info and media_info.is_playlist and media_info.playlist_count > 1:
+        # It's a playlist - ask for confirmation
+        context.user_data['pending_playlist_count'] = media_info.playlist_count
+        await status_msg.edit_text(
+            f"📋 *Playlist detected!*\n\n"
+            f"*Title:* {media_info.title}\n"
+            f"*Videos:* {media_info.playlist_count}\n\n"
+            f"What would you like to do?",
+            reply_markup=playlist_confirmation_keyboard(media_info.playlist_count),
+            parse_mode="Markdown"
+        )
+        return
+
+    # Delete the status message
+    await status_msg.delete()
 
     # If user explicitly requested audio or video, skip format selection
     if intent.wants_audio and not intent.wants_video:
@@ -215,16 +332,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif prefix == QUALITY_PREFIX:
         quality = _parse_quality_action(action)
         if quality:
+            is_playlist = context.user_data.get('is_playlist_download', False)
             # Clear pending data after starting download
             context.user_data.pop('pending_url', None)
             context.user_data.pop('pending_formats', None)
-            await start_download(query, url, quality, context)
+            context.user_data.pop('is_playlist_download', None)
+            context.user_data.pop('pending_playlist_count', None)
+
+            if is_playlist:
+                await start_playlist_download(query, url, quality, context)
+            else:
+                await start_download(query, url, quality, context)
 
     elif prefix == CONFIRM_PREFIX:
         if action == "playlist":
-            # TODO: Implement playlist download
-            await query.edit_message_text("📋 Playlist download not yet implemented.")
+            # Store that this is a playlist download, then show format selection
+            context.user_data['is_playlist_download'] = True
+            await query.edit_message_text(
+                "🎯 *Choose format for all videos:*",
+                reply_markup=format_selection_keyboard(),
+                parse_mode="Markdown"
+            )
         elif action == "single":
+            # User wants only the first item
+            context.user_data['is_playlist_download'] = False
             await query.edit_message_text(
                 "🎯 *Choose format:*",
                 reply_markup=format_selection_keyboard(),
@@ -322,6 +453,14 @@ async def start_download(query, url: str, quality, context: ContextTypes.DEFAULT
     """Start a download task."""
     chat_id = query.message.chat_id
     message_id = query.message.message_id
+    user_id = query.from_user.id
+
+    # Determine format type and quality string
+    is_audio = isinstance(quality, DynamicQuality) and quality.is_audio
+    if not isinstance(quality, DynamicQuality):
+        is_audio = quality.value.startswith("audio")
+    format_type = "audio" if is_audio else "video"
+    quality_str = str(quality.value) if hasattr(quality, "value") else str(quality)
 
     # Update message to show queuing
     await query.edit_message_text("⏳ Adding to queue...")
@@ -351,6 +490,18 @@ async def start_download(query, url: str, quality, context: ContextTypes.DEFAULT
                 title = parts[2]
                 filesize_mb = float(filesize_str)
 
+                # Record download in stats
+                platform = detect_platform(url)
+                stats_service.record_download(
+                    url=url,
+                    platform=platform,
+                    format_type=format_type,
+                    quality=quality_str,
+                    filesize_mb=filesize_mb,
+                    title=title,
+                    user_id=user_id,
+                )
+
                 await handle_download_complete(
                     context.bot, chat_id, message_id, filepath, title, filesize_mb
                 )
@@ -361,8 +512,8 @@ async def start_download(query, url: str, quality, context: ContextTypes.DEFAULT
                     message_id=message_id,
                     text=f"❌ Download failed:\n{error_msg}"
                 )
-        except Exception as e:
-            logger.exception(f"Error in progress callback: {e}")
+        except Exception:
+            logger.exception("Error in progress callback")
 
     # Create and queue task
     task = DownloadTask(
@@ -382,6 +533,102 @@ async def start_download(query, url: str, quality, context: ContextTypes.DEFAULT
             message_id=message_id,
             text=f"📋 Added to queue (position #{position})"
         )
+
+
+async def start_playlist_download(query, url: str, quality, context: ContextTypes.DEFAULT_TYPE):
+    """Start downloading all items in a playlist."""
+    chat_id = query.message.chat_id
+    message_id = query.message.message_id
+    user_id = query.from_user.id
+
+    # Determine format type and quality string
+    is_audio = isinstance(quality, DynamicQuality) and quality.is_audio
+    if not isinstance(quality, DynamicQuality):
+        is_audio = quality.value.startswith("audio")
+    format_type = "audio" if is_audio else "video"
+    quality_str = str(quality.value) if hasattr(quality, "value") else str(quality)
+
+    # Show extraction message
+    await query.edit_message_text("⏳ Extracting playlist entries...")
+
+    # Get playlist info
+    downloader = Downloader()
+    playlist_info = await downloader.get_playlist_info(url)
+
+    if not playlist_info or not playlist_info.entries:
+        await query.edit_message_text("❌ Could not extract playlist entries.")
+        return
+
+    total = playlist_info.count
+    await query.edit_message_text(
+        f"📋 *Downloading playlist: {playlist_info.title}*\n\n"
+        f"Items: 0/{total} completed\n"
+        f"Status: Starting...",
+        parse_mode="Markdown"
+    )
+
+    # Download each entry sequentially
+    completed = 0
+    failed = 0
+    results = []
+
+    for entry in playlist_info.entries:
+        # Update progress
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=(
+                f"📋 *Downloading playlist: {playlist_info.title}*\n\n"
+                f"Items: {completed}/{total} completed ({failed} failed)\n"
+                f"Current: {entry.title[:50]}..."
+            ),
+            parse_mode="Markdown"
+        )
+
+        # Download this entry
+        result = await downloader.download(url=entry.url, quality=quality)
+
+        if result.success:
+            completed += 1
+            results.append((entry.title, result.filepath, result.filesize_mb))
+
+            # Record download in stats
+            platform = detect_platform(entry.url)
+            stats_service.record_download(
+                url=entry.url,
+                platform=platform,
+                format_type=format_type,
+                quality=quality_str,
+                filesize_mb=result.filesize_mb,
+                title=entry.title,
+                user_id=user_id,
+            )
+        else:
+            failed += 1
+            logger.warning(f"Failed to download playlist item {entry.index}: {result.error_message}")
+
+    # Final summary
+    summary_text = (
+        f"📋 *Playlist complete: {playlist_info.title}*\n\n"
+        f"✅ Downloaded: {completed}/{total}\n"
+    )
+    if failed > 0:
+        summary_text += f"❌ Failed: {failed}\n"
+
+    # List first few successful downloads
+    if results:
+        summary_text += "\n*Downloaded files:*\n"
+        for i, (title, filepath, size_mb) in enumerate(results[:5]):
+            summary_text += f"• {title[:40]}... ({size_mb:.1f} MB)\n"
+        if len(results) > 5:
+            summary_text += f"_... and {len(results) - 5} more_\n"
+
+    await context.bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=message_id,
+        text=summary_text,
+        parse_mode="Markdown"
+    )
 
 
 async def handle_download_complete(bot, chat_id: int, message_id: int, filepath: Path, title: str, filesize_mb: float):
@@ -419,8 +666,8 @@ async def handle_download_complete(bot, chat_id: int, message_id: int, filepath:
                 text=f"✅ Downloaded: {title}\n📁 Size: {filesize_mb:.1f} MB"
             )
 
-        except Exception as e:
-            logger.error(f"Failed to send file: {e}")
+        except (OSError, IOError):
+            logger.exception(f"Failed to send file: {filepath}")
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
@@ -469,6 +716,8 @@ def register_handlers(app: Application):
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("health", health_command))
 
     # Callback queries (inline keyboards)
     app.add_handler(CallbackQueryHandler(handle_callback))

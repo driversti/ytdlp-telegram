@@ -75,6 +75,30 @@ class MediaInfo:
 
 
 @dataclass
+class PlaylistEntry:
+    """Represents a single entry in a playlist."""
+
+    url: str
+    title: str
+    duration: int = 0
+    index: int = 0
+
+
+@dataclass
+class PlaylistInfo:
+    """Information about a playlist."""
+
+    title: str
+    playlist_id: str
+    entries: list[PlaylistEntry]
+    uploader: str = ""
+
+    @property
+    def count(self) -> int:
+        return len(self.entries)
+
+
+@dataclass
 class VideoFormat:
     """Represents an available video quality option."""
     height: int  # e.g., 720, 1080, 2160
@@ -121,14 +145,28 @@ class DynamicQuality:
 
 
 class DownloadQueue:
-    """Sequential download queue with position tracking."""
+    """Concurrent download queue with position tracking using semaphore."""
 
-    def __init__(self):
+    def __init__(self, max_concurrent: int = 2):
         self._queue: deque[DownloadTask] = deque()
-        self._current_task: Optional[DownloadTask] = None
+        self._active_tasks: dict[int, DownloadTask] = {}  # message_id -> task
         self._lock = asyncio.Lock()
         self._processing = False
-        self._processor_task: Optional[asyncio.Task] = None
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._max_concurrent = max_concurrent
+        self._task_counter = 0
+
+    @property
+    def _current_task(self) -> Optional[DownloadTask]:
+        """Compatibility property - returns first active task or None."""
+        if self._active_tasks:
+            return next(iter(self._active_tasks.values()))
+        return None
+
+    @property
+    def active_count(self) -> int:
+        """Number of currently active downloads."""
+        return len(self._active_tasks)
 
     async def add(self, task: DownloadTask) -> int:
         """
@@ -138,15 +176,21 @@ class DownloadQueue:
             Position in queue (1-based, 0 means processing immediately)
         """
         async with self._lock:
+            self._task_counter += 1
+            task_id = self._task_counter
             self._queue.append(task)
-            position = len(self._queue)
 
             # Start processor if not running
             if not self._processing:
                 self._processing = True
-                self._processor_task = asyncio.create_task(self._process_queue())
+                asyncio.create_task(self._process_queue())
 
-            return position if self._current_task else 0
+            # Calculate position: queue length + any tasks ahead
+            queue_position = len(self._queue)
+            # If we're at capacity, show queue position
+            if self.active_count >= self._max_concurrent:
+                return queue_position
+            return 0
 
     async def get_position(self, chat_id: int, message_id: int) -> int:
         """Get position of a task in queue."""
@@ -156,24 +200,56 @@ class DownloadQueue:
                     return i + 1
             return 0
 
+    async def get_queue_status(self) -> tuple[int, int]:
+        """Get queue status (active_count, queue_length)."""
+        async with self._lock:
+            return self.active_count, len(self._queue)
+
     async def _process_queue(self):
-        """Process tasks in the queue sequentially."""
+        """Process tasks in the queue with concurrent downloads."""
         while True:
+            # Wait for a semaphore slot
+            await self._semaphore.acquire()
+
             async with self._lock:
                 if not self._queue:
-                    self._processing = False
-                    self._current_task = None
-                    return
+                    self._semaphore.release()
+                    # Check if there are still active tasks
+                    if not self._active_tasks:
+                        self._processing = False
+                        return
+                    continue
 
-                self._current_task = self._queue.popleft()
+                task = self._queue.popleft()
 
-            try:
-                await self._execute_download(self._current_task)
-            except Exception as e:
-                logger.error(f"Error processing download task: {e}")
+            # Execute in a separate task to allow concurrency
+            asyncio.create_task(self._execute_download_wrapper(task))
 
+            # Small delay to prevent tight loop
+            await asyncio.sleep(0.01)
+
+    async def _execute_download_wrapper(self, task: DownloadTask):
+        """Wrapper to execute download and release semaphore when done."""
+        try:
             async with self._lock:
-                self._current_task = None
+                self._active_tasks[task.message_id] = task
+
+            await self._execute_download(task)
+
+        except Exception:
+            logger.exception("Error processing download task")
+        finally:
+            async with self._lock:
+                self._active_tasks.pop(task.message_id, None)
+            self._semaphore.release()
+
+            # Check if we need to continue processing
+            async with self._lock:
+                if self._queue and not any(
+                    asyncio.iscoroutine(t) for t in asyncio.all_tasks()
+                    if hasattr(t, 'get_name') and 'process_queue' in str(t.get_name())
+                ):
+                    asyncio.create_task(self._process_queue())
 
     async def _execute_download(self, task: DownloadTask):
         """Execute a single download task."""
@@ -359,12 +435,86 @@ class Downloader:
                         uploader=info.get("uploader", ""),
                         url=url,
                     )
-            except Exception as e:
-                logger.error(f"Failed to get info for {url}: {e}")
+            except Exception:
+                logger.exception(f"Failed to get info for {url}")
                 return None
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _extract_info)
+
+    async def get_playlist_info(self, url: str, timeout: int = 60) -> Optional[PlaylistInfo]:
+        """
+        Get detailed playlist information including entries.
+
+        Args:
+            url: The playlist URL
+            timeout: Timeout in seconds for extraction
+
+        Returns:
+            PlaylistInfo with entries, or None if not a playlist
+        """
+
+        def _extract_playlist():
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": "in_playlist",  # Only get basic info, don't resolve each video
+            }
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+
+                    if info is None:
+                        return None
+
+                    # Check if it's a playlist
+                    if info.get("_type") != "playlist":
+                        return None
+
+                    entries_data = info.get("entries", [])
+                    entries = []
+
+                    for idx, entry in enumerate(entries_data):
+                        if entry is None:
+                            continue
+                        # Build the full URL for the entry
+                        entry_url = entry.get("url") or entry.get("webpage_url", "")
+                        if not entry_url and entry.get("id"):
+                            # For YouTube, construct URL from video ID
+                            entry_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+
+                        if entry_url:
+                            entries.append(PlaylistEntry(
+                                url=entry_url,
+                                title=entry.get("title", f"Video {idx + 1}"),
+                                duration=entry.get("duration", 0) or 0,
+                                index=idx + 1,
+                            ))
+
+                    return PlaylistInfo(
+                        title=info.get("title", "Unknown Playlist"),
+                        playlist_id=info.get("id", ""),
+                        entries=entries,
+                        uploader=info.get("uploader", ""),
+                    )
+
+            except yt_dlp.utils.DownloadError as e:
+                logger.warning(f"Failed to get playlist info for {url}: {e}")
+                return None
+            except Exception:
+                logger.exception(f"Failed to get playlist info for {url}")
+                return None
+
+        loop = asyncio.get_running_loop()
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, _extract_playlist),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Playlist extraction timed out for {url}")
+            return None
 
     async def download(
         self,
@@ -459,28 +609,43 @@ class Downloader:
                     title = info.get("title", "Unknown")
                     duration = info.get("duration", 0) or 0
 
-                    # Find the downloaded file
+                    # Determine expected extension
                     if is_audio:
                         ext = "mp3"
                     else:
                         ext = info.get("ext", "mp4")
 
-                    safe_title = sanitize_filename(title)
-                    filepath = platform_dir / f"{safe_title}.{ext}"
+                    # Find the downloaded file using yt-dlp's requested_downloads
+                    # This is the most reliable method as it contains the actual filepath
+                    filepath = None
+                    requested_downloads = info.get("requested_downloads")
+                    if requested_downloads and len(requested_downloads) > 0:
+                        download_info = requested_downloads[0]
+                        filepath_str = download_info.get("filepath")
+                        if filepath_str:
+                            filepath = Path(filepath_str)
+                            logger.debug(f"Found file via requested_downloads: {filepath}")
 
-                    # Handle potential yt-dlp naming variations
+                    # Fallback: Try sanitized filename
+                    if not filepath or not filepath.exists():
+                        safe_title = sanitize_filename(title)
+                        filepath = platform_dir / f"{safe_title}.{ext}"
+
+                    # Fallback: Try to find file with partial title match
                     if not filepath.exists():
-                        # Try to find the file with original title
+                        safe_title = sanitize_filename(title)
                         for f in platform_dir.iterdir():
                             if f.stem.startswith(safe_title[:50]) and f.suffix == f".{ext}":
                                 filepath = f
+                                logger.debug(f"Found file via partial match: {filepath}")
                                 break
 
+                    # Last resort: find most recent file with correct extension
                     if not filepath.exists():
-                        # Last resort: find most recent file
                         files = list(platform_dir.glob(f"*.{ext}"))
                         if files:
                             filepath = max(files, key=lambda x: x.stat().st_mtime)
+                            logger.debug(f"Found file via most recent: {filepath}")
                         else:
                             return DownloadResult(
                                 success=False,
@@ -508,12 +673,13 @@ class Downloader:
                     error_msg = "Age-restricted content cannot be downloaded"
 
                 return DownloadResult(success=False, error_message=error_msg)
-            except Exception as e:
-                logger.error(f"Download error: {e}")
-                return DownloadResult(success=False, error_message=str(e))
+            except Exception:
+                logger.exception("Download error")
+                return DownloadResult(success=False, error_message="Unexpected download error")
 
         return await loop.run_in_executor(None, _download)
 
 
-# Global queue instance
-download_queue = DownloadQueue()
+# Global queue instance - default to 2 concurrent downloads
+# Will be reconfigured when handlers are registered
+download_queue = DownloadQueue(max_concurrent=2)

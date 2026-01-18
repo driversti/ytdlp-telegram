@@ -37,3 +37,7 @@ env/
 
 # Downloads
 downloads/
+
+# Coverage
+.coverage
+htmlcov/

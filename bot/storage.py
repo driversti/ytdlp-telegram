@@ -42,6 +42,35 @@ PLATFORM_PATTERNS = {
 }
 
 
+def is_valid_url(url: str) -> bool:
+    """
+    Validate that a URL is safe to pass to yt-dlp.
+
+    Args:
+        url: The URL to validate
+
+    Returns:
+        True if URL is valid and safe, False otherwise
+    """
+    if not url or not isinstance(url, str):
+        return False
+
+    try:
+        parsed = urlparse(url)
+        # Only allow http and https schemes
+        if parsed.scheme not in ("http", "https"):
+            return False
+        # Must have a network location (domain)
+        if not parsed.netloc:
+            return False
+        # Basic sanity check on domain format
+        if len(parsed.netloc) > 253:  # Max domain length
+            return False
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 def detect_platform(url: str) -> str:
     """Detect the platform from URL."""
     try:
@@ -54,7 +83,8 @@ def detect_platform(url: str) -> str:
                     return platform
 
         return "other"
-    except Exception:
+    except (ValueError, AttributeError) as e:
+        logger.debug(f"Failed to parse URL for platform detection: {url!r} - {e}")
         return "other"
 
 
@@ -156,8 +186,8 @@ def cleanup_file(filepath: Path) -> bool:
             filepath.unlink()
             logger.info(f"Cleaned up file: {filepath}")
             return True
-    except Exception as e:
-        logger.error(f"Failed to cleanup file {filepath}: {e}")
+    except OSError:
+        logger.exception(f"Failed to cleanup file {filepath}")
     return False
 
 
