@@ -1,0 +1,9 @@
+services:
+  bot:
+    build: .
+    container_name: ytdlp-telegram-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./downloads:/downloads
+    network_mode: host  # To access Ollama on localhost
