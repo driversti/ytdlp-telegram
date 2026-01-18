@@ -3,7 +3,7 @@ set -e
 
 REGISTRY="registry.yurii.live"
 IMAGE_NAME="ytdlp-telegram"
-VERSION="${1:-v0.1.0}"
+VERSION="${1:-v0.1.1}"
 
 echo "🚀 Building and pushing ${REGISTRY}/${IMAGE_NAME}:${VERSION}"
 

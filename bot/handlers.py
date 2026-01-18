@@ -251,10 +251,13 @@ async def start_download(query, url: str, quality: DownloadQuality, context: Con
                     text="🔄 Processing..."
                 )
             elif status.startswith("complete|"):
-                parts = status.split("|")
+                # Split from right first to get filesize (last field, no pipes)
+                # Then split remaining from left to handle titles containing |
+                main_part, filesize_str = status.rsplit("|", maxsplit=1)
+                parts = main_part.split("|", maxsplit=2)
                 filepath = Path(parts[1])
                 title = parts[2]
-                filesize_mb = float(parts[3])
+                filesize_mb = float(filesize_str)
 
                 await handle_download_complete(
                     context.bot, chat_id, message_id, filepath, title, filesize_mb
