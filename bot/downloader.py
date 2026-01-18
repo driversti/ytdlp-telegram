@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 from collections import deque
 
 import yt_dlp
@@ -36,7 +36,7 @@ class DownloadTask:
     """Represents a single download task."""
 
     url: str
-    quality: DownloadQuality
+    quality: Union[DownloadQuality, "DynamicQuality"]
     chat_id: int
     message_id: int
     progress_callback: Optional[Callable[[float, str], asyncio.Future]] = None
@@ -72,6 +72,52 @@ class MediaInfo:
     thumbnail: Optional[str] = None
     uploader: str = ""
     url: str = ""
+
+
+@dataclass
+class VideoFormat:
+    """Represents an available video quality option."""
+    height: int  # e.g., 720, 1080, 2160
+
+    @property
+    def label(self) -> str:
+        return f"{self.height}p"
+
+
+@dataclass
+class AudioFormat:
+    """Represents an available audio quality option."""
+    bitrate: int  # e.g., 128, 192, 320
+
+    @property
+    def label(self) -> str:
+        return f"{self.bitrate} kbps"
+
+
+@dataclass
+class AvailableFormats:
+    """Container for available formats from a URL."""
+    video_formats: list[VideoFormat]
+    audio_formats: list[AudioFormat]
+    error: Optional[str] = None
+
+
+@dataclass
+class DynamicQuality:
+    """Quality setting for dynamically detected values."""
+    is_audio: bool
+    value: int  # height for video, bitrate for audio
+
+    def get_format_string(self) -> str:
+        if self.is_audio:
+            return f"bestaudio[abr<={self.value}]/bestaudio/best"
+        else:
+            # Priority order:
+            # 1. Separate video+audio streams at requested height (highest quality)
+            # 2. Separate streams up to requested height
+            # 3. Combined format at exact height
+            # 4. Any best available
+            return f"bestvideo[height={self.value}]+bestaudio/bestvideo[height<={self.value}]+bestaudio/best[height={self.value}]/best"
 
 
 class DownloadQueue:
@@ -168,24 +214,121 @@ class Downloader:
     def __init__(self):
         self.config = get_config()
 
-    def _get_format_string(self, quality: DownloadQuality) -> str:
+    def _get_format_string(self, quality: Union[DownloadQuality, DynamicQuality]) -> str:
         """Get yt-dlp format string for quality."""
+        if isinstance(quality, DynamicQuality):
+            return quality.get_format_string()
+
         format_map = {
             DownloadQuality.AUDIO_128: "bestaudio[abr<=128]/bestaudio/best",
             DownloadQuality.AUDIO_192: "bestaudio[abr<=192]/bestaudio/best",
             DownloadQuality.AUDIO_320: "bestaudio[abr<=320]/bestaudio/best",
             DownloadQuality.AUDIO_BEST: "bestaudio/best",
-            # Prefer combined formats first to bypass YouTube SABR streaming restrictions
-            DownloadQuality.VIDEO_480: "best[height<=480]/bestvideo[height<=480]+bestaudio/best",
-            DownloadQuality.VIDEO_720: "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
-            DownloadQuality.VIDEO_1080: "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best",
-            DownloadQuality.VIDEO_BEST: "best/bestvideo+bestaudio",
+            # Prefer separate streams for highest quality, then fall back to combined
+            DownloadQuality.VIDEO_480: "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+            DownloadQuality.VIDEO_720: "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+            DownloadQuality.VIDEO_1080: "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            DownloadQuality.VIDEO_BEST: "bestvideo+bestaudio/best",
         }
         return format_map.get(quality, "best")
 
-    def _is_audio_format(self, quality: DownloadQuality) -> bool:
+    def _is_audio_format(self, quality: Union[DownloadQuality, DynamicQuality]) -> bool:
         """Check if quality is audio format."""
+        if isinstance(quality, DynamicQuality):
+            return quality.is_audio
         return quality.value.startswith("audio")
+
+    def _round_to_standard_bitrate(self, bitrate: float) -> int:
+        """Round bitrate to nearest standard value."""
+        standard_bitrates = [64, 96, 128, 160, 192, 256, 320]
+        return min(standard_bitrates, key=lambda x: abs(x - bitrate))
+
+    async def get_available_formats(self, url: str, timeout: int = 30) -> AvailableFormats:
+        """
+        Get available video and audio formats for a URL.
+
+        Args:
+            url: The URL to analyze
+            timeout: Timeout in seconds for format extraction
+
+        Returns:
+            AvailableFormats with detected qualities or error message
+        """
+        def _extract_formats():
+            # Don't use android client for format detection - it returns limited formats
+            # We want to see ALL available formats for the user to choose from
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": False,
+            }
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+
+                    if info is None:
+                        return AvailableFormats([], [], error="Could not extract media information")
+
+                    # Handle playlists - use first entry
+                    if info.get("_type") == "playlist":
+                        entries = info.get("entries", [])
+                        if entries and entries[0]:
+                            info = entries[0]
+                        else:
+                            return AvailableFormats([], [], error="Playlist is empty")
+
+                    formats = info.get("formats", [])
+                    if not formats:
+                        return AvailableFormats([], [], error="No formats available")
+
+                    # Extract unique video heights and audio bitrates
+                    video_heights: set[int] = set()
+                    audio_bitrates: set[int] = set()
+
+                    for fmt in formats:
+                        # Video formats
+                        height = fmt.get("height")
+                        vcodec = fmt.get("vcodec", "none")
+                        if height and vcodec != "none":
+                            video_heights.add(height)
+
+                        # Audio formats
+                        abr = fmt.get("abr")
+                        acodec = fmt.get("acodec", "none")
+                        if abr and acodec != "none":
+                            rounded_bitrate = self._round_to_standard_bitrate(abr)
+                            audio_bitrates.add(rounded_bitrate)
+
+                    # Create sorted format lists (descending)
+                    video_formats = [VideoFormat(h) for h in sorted(video_heights, reverse=True)]
+                    audio_formats = [AudioFormat(b) for b in sorted(audio_bitrates, reverse=True)]
+
+                    logger.info(f"Detected formats for {url}: video={[f.label for f in video_formats]}, audio={[f.label for f in audio_formats]}")
+
+                    return AvailableFormats(video_formats, audio_formats)
+
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                if "Video unavailable" in error_msg:
+                    error_msg = "Video is unavailable or private"
+                elif "Sign in" in error_msg:
+                    error_msg = "This content requires authentication"
+                elif "age" in error_msg.lower():
+                    error_msg = "Age-restricted content"
+                return AvailableFormats([], [], error=error_msg)
+            except Exception as e:
+                logger.error(f"Failed to get formats for {url}: {e}")
+                return AvailableFormats([], [], error=str(e))
+
+        loop = asyncio.get_running_loop()
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, _extract_formats),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            return AvailableFormats([], [], error="Format detection timed out")
 
     async def get_info(self, url: str) -> Optional[MediaInfo]:
         """Get media information without downloading."""
@@ -246,23 +389,33 @@ class Downloader:
         is_audio = self._is_audio_format(quality)
         platform_dir = get_platform_directory(url)
 
+        format_string = self._get_format_string(quality)
+        logger.info(f"Starting download: url={url}, quality={quality}, format_string={format_string}")
+
         # Prepare yt-dlp options
         ydl_opts = {
-            "format": self._get_format_string(quality),
+            "format": format_string,
             "outtmpl": str(platform_dir / "%(title)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,  # Download single video by default
-            # YouTube-specific: use Android client which works without PO Token
-            "extractor_args": {"youtube": {"player_client": ["android"]}},
+            # Let yt-dlp use default clients - PO Token provider will handle auth
         }
 
         if is_audio:
+            # Determine audio quality for postprocessor
+            if isinstance(quality, DynamicQuality):
+                audio_quality = str(quality.value)
+            elif quality == DownloadQuality.AUDIO_BEST:
+                audio_quality = "0"  # Best quality for ffmpeg
+            else:
+                audio_quality = quality.value.split("_")[1]
+
             ydl_opts.update({
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
-                    "preferredquality": quality.value.split("_")[1] if "_" in quality.value else "192",
+                    "preferredquality": audio_quality,
                 }],
             })
 

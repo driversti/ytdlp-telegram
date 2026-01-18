@@ -1,5 +1,10 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bot.downloader import VideoFormat, AudioFormat
+
 
 # Callback data prefixes
 FORMAT_PREFIX = "format:"
@@ -41,7 +46,7 @@ def audio_quality_keyboard() -> InlineKeyboardMarkup:
 
 
 def video_quality_keyboard() -> InlineKeyboardMarkup:
-    """Create keyboard for video quality selection."""
+    """Create keyboard for video quality selection (fallback with default options)."""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("480p", callback_data=f"{QUALITY_PREFIX}video_480"),
@@ -56,6 +61,66 @@ def video_quality_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}download"),
         ]
     ])
+
+
+def dynamic_video_quality_keyboard(formats: list["VideoFormat"]) -> InlineKeyboardMarkup:
+    """Create keyboard for video quality selection with dynamic options."""
+    buttons = []
+    row = []
+
+    for fmt in formats:
+        # Use video_{height} format for callback data
+        row.append(
+            InlineKeyboardButton(fmt.label, callback_data=f"{QUALITY_PREFIX}video_{fmt.height}")
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+
+    # Add remaining button if odd number
+    if row:
+        buttons.append(row)
+
+    # Add "Best" option
+    buttons.append([InlineKeyboardButton("🌟 Best", callback_data=f"{QUALITY_PREFIX}video_best")])
+
+    # Add navigation buttons
+    buttons.append([
+        InlineKeyboardButton("⬅️ Back", callback_data=f"{FORMAT_PREFIX}back"),
+        InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}download"),
+    ])
+
+    return InlineKeyboardMarkup(buttons)
+
+
+def dynamic_audio_quality_keyboard(formats: list["AudioFormat"]) -> InlineKeyboardMarkup:
+    """Create keyboard for audio quality selection with dynamic options."""
+    buttons = []
+    row = []
+
+    for fmt in formats:
+        # Use audio_{bitrate} format for callback data
+        row.append(
+            InlineKeyboardButton(fmt.label, callback_data=f"{QUALITY_PREFIX}audio_{fmt.bitrate}")
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+
+    # Add remaining button if odd number
+    if row:
+        buttons.append(row)
+
+    # Add "Best" option
+    buttons.append([InlineKeyboardButton("🌟 Best", callback_data=f"{QUALITY_PREFIX}audio_best")])
+
+    # Add navigation buttons
+    buttons.append([
+        InlineKeyboardButton("⬅️ Back", callback_data=f"{FORMAT_PREFIX}back"),
+        InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}download"),
+    ])
+
+    return InlineKeyboardMarkup(buttons)
 
 
 def playlist_confirmation_keyboard(count: int) -> InlineKeyboardMarkup:

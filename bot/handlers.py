@@ -18,6 +18,8 @@ from bot.keyboards import (
     format_selection_keyboard,
     audio_quality_keyboard,
     video_quality_keyboard,
+    dynamic_video_quality_keyboard,
+    dynamic_audio_quality_keyboard,
     playlist_confirmation_keyboard,
     file_delete_keyboard,
     parse_callback_data,
@@ -30,6 +32,7 @@ from bot.keyboards import (
 from bot.downloader import (
     Downloader,
     DownloadQuality,
+    DynamicQuality,
     DownloadTask,
     download_queue,
     extract_urls,
@@ -175,6 +178,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle callbacks that don't need pending_url first
     if prefix == CANCEL_PREFIX:
         context.user_data.pop('pending_url', None)
+        context.user_data.pop('pending_formats', None)
         await query.edit_message_text("❌ Download cancelled.")
         return
 
@@ -197,18 +201,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if prefix == FORMAT_PREFIX:
         if action == "audio":
-            await query.edit_message_text(
-                "🎵 *Choose audio quality:*",
-                reply_markup=audio_quality_keyboard(),
-                parse_mode="Markdown"
-            )
+            await _handle_format_selection(query, context, url, is_audio=True)
         elif action == "video":
-            await query.edit_message_text(
-                "🎬 *Choose video quality:*",
-                reply_markup=video_quality_keyboard(),
-                parse_mode="Markdown"
-            )
+            await _handle_format_selection(query, context, url, is_audio=False)
         elif action == "back":
+            context.user_data.pop('pending_formats', None)
             await query.edit_message_text(
                 "🎯 *Choose format:*",
                 reply_markup=format_selection_keyboard(),
@@ -216,21 +213,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     elif prefix == QUALITY_PREFIX:
-        quality_map = {
-            "audio_128": DownloadQuality.AUDIO_128,
-            "audio_192": DownloadQuality.AUDIO_192,
-            "audio_320": DownloadQuality.AUDIO_320,
-            "audio_best": DownloadQuality.AUDIO_BEST,
-            "video_480": DownloadQuality.VIDEO_480,
-            "video_720": DownloadQuality.VIDEO_720,
-            "video_1080": DownloadQuality.VIDEO_1080,
-            "video_best": DownloadQuality.VIDEO_BEST,
-        }
-
-        quality = quality_map.get(action)
+        quality = _parse_quality_action(action)
         if quality:
-            # Clear pending URL after starting download
+            # Clear pending data after starting download
             context.user_data.pop('pending_url', None)
+            context.user_data.pop('pending_formats', None)
             await start_download(query, url, quality, context)
 
     elif prefix == CONFIRM_PREFIX:
@@ -245,7 +232,93 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-async def start_download(query, url: str, quality: DownloadQuality, context: ContextTypes.DEFAULT_TYPE):
+async def _handle_format_selection(query, context, url: str, is_audio: bool):
+    """Handle audio/video format selection with dynamic quality detection."""
+    format_type = "audio" if is_audio else "video"
+    emoji = "🎵" if is_audio else "🎬"
+
+    # Show waiting message
+    await query.edit_message_text(f"⏳ Please wait, analyzing available qualities...")
+
+    # Get available formats
+    downloader = Downloader()
+    formats_result = await downloader.get_available_formats(url)
+
+    # Cache result for potential reuse
+    context.user_data['pending_formats'] = formats_result
+
+    # Check for errors or empty results
+    if formats_result.error:
+        logger.warning(f"Format detection failed for {url}: {formats_result.error}")
+        await _show_fallback_keyboard(query, is_audio, emoji, formats_result.error)
+        return
+
+    if is_audio:
+        if not formats_result.audio_formats:
+            await _show_fallback_keyboard(query, is_audio, emoji, "No audio formats detected")
+            return
+        keyboard = dynamic_audio_quality_keyboard(formats_result.audio_formats)
+    else:
+        if not formats_result.video_formats:
+            await _show_fallback_keyboard(query, is_audio, emoji, "No video formats detected")
+            return
+        keyboard = dynamic_video_quality_keyboard(formats_result.video_formats)
+
+    await query.edit_message_text(
+        f"{emoji} *Choose {format_type} quality:*",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+
+async def _show_fallback_keyboard(query, is_audio: bool, emoji: str, error_reason: str):
+    """Show fallback keyboard with default options when dynamic detection fails."""
+    format_type = "audio" if is_audio else "video"
+    keyboard = audio_quality_keyboard() if is_audio else video_quality_keyboard()
+
+    await query.edit_message_text(
+        f"{emoji} *Choose {format_type} quality:*\n"
+        f"_Using default options ({error_reason})_",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+
+def _parse_quality_action(action: str):
+    """Parse quality action string into DownloadQuality or DynamicQuality."""
+    # First check if it's a standard quality
+    standard_qualities = {
+        "audio_128": DownloadQuality.AUDIO_128,
+        "audio_192": DownloadQuality.AUDIO_192,
+        "audio_320": DownloadQuality.AUDIO_320,
+        "audio_best": DownloadQuality.AUDIO_BEST,
+        "video_480": DownloadQuality.VIDEO_480,
+        "video_720": DownloadQuality.VIDEO_720,
+        "video_1080": DownloadQuality.VIDEO_1080,
+        "video_best": DownloadQuality.VIDEO_BEST,
+    }
+
+    if action in standard_qualities:
+        return standard_qualities[action]
+
+    # Try to parse as dynamic quality (e.g., video_1440, audio_256)
+    if action.startswith("video_"):
+        try:
+            height = int(action.split("_")[1])
+            return DynamicQuality(is_audio=False, value=height)
+        except (ValueError, IndexError):
+            pass
+    elif action.startswith("audio_"):
+        try:
+            bitrate = int(action.split("_")[1])
+            return DynamicQuality(is_audio=True, value=bitrate)
+        except (ValueError, IndexError):
+            pass
+
+    return None
+
+
+async def start_download(query, url: str, quality, context: ContextTypes.DEFAULT_TYPE):
     """Start a download task."""
     chat_id = query.message.chat_id
     message_id = query.message.message_id
