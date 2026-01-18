@@ -249,35 +249,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Delete the status message
-    await status_msg.delete()
-
     # If user explicitly requested audio or video, skip format selection
     if intent.wants_audio and not intent.wants_video:
-        await show_audio_quality(message)
+        await show_audio_quality(status_msg)
     elif intent.wants_video and not intent.wants_audio:
-        await show_video_quality(message)
+        await show_video_quality(status_msg)
     else:
         # Show format selection
-        await message.reply_text(
+        await status_msg.edit_text(
             "🎯 *Choose format:*",
             reply_markup=format_selection_keyboard(),
             parse_mode="Markdown"
         )
 
 
-async def show_audio_quality(message):
+async def show_audio_quality(status_msg):
     """Show audio quality selection."""
-    await message.reply_text(
+    await status_msg.edit_text(
         "🎵 *Choose audio quality:*",
         reply_markup=audio_quality_keyboard(),
         parse_mode="Markdown"
     )
 
 
-async def show_video_quality(message):
+async def show_video_quality(status_msg):
     """Show video quality selection."""
-    await message.reply_text(
+    await status_msg.edit_text(
         "🎬 *Choose video quality:*",
         reply_markup=video_quality_keyboard(),
         parse_mode="Markdown"

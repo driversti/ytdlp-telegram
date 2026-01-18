@@ -533,6 +533,9 @@ class Downloader:
                     "preferredquality": audio_quality,
                 }],
             })
+        else:
+            # Force MP4 container for video downloads (VP9/WebM → MP4)
+            ydl_opts["merge_output_format"] = "mp4"
 
         # Progress hook
         last_progress = [0]
