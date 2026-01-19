@@ -106,7 +106,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"📊 *Queue Status*\n\n"
-        f"Active downloads: {active}/{download_queue._max_concurrent}\n"
+        f"Active downloads: {active}\n"
         f"Items in queue: {queued}",
         parse_mode="Markdown"
     )
@@ -124,7 +124,7 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Queue status
     active, queued = await download_queue.get_queue_status()
     text += "*Download Queue:*\n"
-    text += f"• Active: {active}/{download_queue._max_concurrent}\n"
+    text += f"• Active: {active}\n"
     text += f"• Queued: {queued}\n\n"
 
     # Disk space

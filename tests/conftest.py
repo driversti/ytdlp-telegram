@@ -45,7 +45,6 @@ def mock_config(temp_download_dir, monkeypatch):
         max_file_size_mb=50,
         file_server_url="http://localhost:8080",
         file_server_public_url="http://localhost:8080",
-        max_concurrent_downloads=2,
         download_timeout=1800,
         format_detection_timeout=30,
         llm_timeout=30,

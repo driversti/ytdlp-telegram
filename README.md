@@ -9,7 +9,7 @@ A Telegram bot that downloads media from YouTube, Instagram, Facebook, Twitter/X
 
 - Download audio (MP3) or video from supported platforms
 - Quality selection (128kbps-320kbps for audio, 480p-1080p for video)
-- Concurrent download queue with progress tracking
+- Download queue with progress tracking
 - Natural language support via Ollama LLM integration
 - Platform-based file organization
 - User access control with admin approval workflow
@@ -72,7 +72,6 @@ docker compose up -d
 | `OLLAMA_MODEL` | Ollama model for NLP | `llama3.2:3b` |
 | `DOWNLOAD_PATH` | Directory for downloaded files | `/downloads` |
 | `MAX_FILE_SIZE_MB` | Max file size for Telegram upload | `50` |
-| `MAX_CONCURRENT_DOWNLOADS` | Simultaneous downloads | `2` |
 | `FILE_SERVER_URL` | Internal file server URL | `http://localhost:8080` |
 | `FILE_SERVER_PUBLIC_URL` | Public file server URL | `http://localhost:8080` |
 

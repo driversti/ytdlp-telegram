@@ -149,14 +149,13 @@ class DynamicQuality:
 
 
 class DownloadQueue:
-    """Simple sequential download queue - one download at a time."""
+    """Sequential download queue - one download at a time."""
 
-    def __init__(self, max_concurrent: int = 1):
+    def __init__(self):
         self._queue: deque[DownloadTask] = deque()
         self._current_task: Optional[DownloadTask] = None
         self._lock = asyncio.Lock()
         self._processing = False
-        self._max_concurrent = 1  # Force sequential
 
     @property
     def active_count(self) -> int:
@@ -654,6 +653,5 @@ class Downloader:
         return await loop.run_in_executor(_download_executor, _download)
 
 
-# Global queue instance - default to 2 concurrent downloads
-# Will be reconfigured when handlers are registered
-download_queue = DownloadQueue(max_concurrent=2)
+# Global queue instance
+download_queue = DownloadQueue()

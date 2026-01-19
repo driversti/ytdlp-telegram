@@ -20,7 +20,6 @@ class Config:
     max_file_size_mb: int
     file_server_url: str
     file_server_public_url: str
-    max_concurrent_downloads: int
     download_timeout: int
     format_detection_timeout: int
     llm_timeout: int
@@ -50,7 +49,6 @@ class Config:
             max_file_size_mb=int(os.getenv("MAX_FILE_SIZE_MB", "50")),
             file_server_url=os.getenv("FILE_SERVER_URL", "http://localhost:8080"),
             file_server_public_url=os.getenv("FILE_SERVER_PUBLIC_URL", "http://localhost:8080"),
-            max_concurrent_downloads=int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "2")),
             download_timeout=int(os.getenv("DOWNLOAD_TIMEOUT", "1800")),  # 30 minutes
             format_detection_timeout=int(os.getenv("FORMAT_DETECTION_TIMEOUT", "30")),
             llm_timeout=int(os.getenv("LLM_TIMEOUT", "30")),

@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.5] - 2024-01-XX
 
 ### Added
-- Concurrent download queue with configurable limit
+- Download queue with progress tracking
 - Progress bar updates during downloads
 - Download position tracking in queue
 
