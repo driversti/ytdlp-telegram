@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-REGISTRY="registry.yurii.live"
+# Configure your registry here (e.g., ghcr.io/username, docker.io/username)
+REGISTRY="${REGISTRY:-ghcr.io/driversti}"
 IMAGE_NAME="ytdlp-telegram"
 
 # Read version from config.py (single source of truth)
@@ -18,8 +19,4 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t ${REGISTRY}/${IMAGE_NAME}:latest \
   --push .
 
-# Update docker-compose.yml with the new version
-sed -i '' "s|image: ${REGISTRY}/${IMAGE_NAME}:v[0-9a-zA-Z.-]*|image: ${REGISTRY}/${IMAGE_NAME}:${VERSION}|" docker-compose.yml
-
 echo "✅ Done! Image pushed to ${REGISTRY}/${IMAGE_NAME}:${VERSION} and :latest"
-echo "📝 docker-compose.yml updated to use ${VERSION}"

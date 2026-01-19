@@ -43,3 +43,12 @@ downloads/
 htmlcov/
 .DS_Store
 
+# Claude Code local settings
+.claude/
+
+# Local data files
+*.db
+.tokens.json
+
+# Local todo/notes
+TODO.md

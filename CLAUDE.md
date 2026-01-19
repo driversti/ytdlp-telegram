@@ -125,19 +125,28 @@ Optional:
   - `bgutil-ytdlp-pot-provider` for YouTube PO Token support (port 4416)
   - `file-server` for large file downloads (port 8080)
 - Multi-arch builds: `linux/amd64`, `linux/arm64`
-- Registry: `registry.yurii.live`
-- File server image: `registry.yurii.live/ytdlp-file-server:v0.1.1` (built separately in `file-server/`)
+- File server built separately in `file-server/` directory
 
 ## Deployment
 
-- **Host:** Nvidia Jetson Orin Nano (`192.168.10.10`)
-- **SSH:** `ssh jetson@192.168.10.10`
-- **Root folder:** `/home/jetson/docker/ytdlp-telegram`
-- **Ollama:** Runs locally on the Jetson at `http://192.168.10.10:11434`
+Deploy using Docker Compose:
 
-### Claude Code Skills
+```bash
+# Start all services
+docker compose up -d
 
-- `/deploy-test` - Build and deploy test containers to Jetson with auto-incrementing `-testN` version suffix. Builds multi-arch images, pushes to registry, updates docker-compose.yml on Jetson, and verifies deployment. Always asks for confirmation before deploying.
+# View logs
+docker compose logs -f bot
+
+# Stop services
+docker compose down
+```
+
+For production deployments:
+- Use the pre-built images from GHCR or build locally
+- Configure environment variables in `.env`
+- Ensure Ollama is accessible (optional, for NLP features)
+- Set up reverse proxy for file server public access (if needed)
 
 ## Testing
 
