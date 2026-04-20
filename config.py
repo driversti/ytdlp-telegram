@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 load_dotenv()
 

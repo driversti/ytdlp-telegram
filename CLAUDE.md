@@ -169,3 +169,4 @@ Access request flow: Unauthorized user → "Request Access" button → Admin get
 - File server logs: `docker compose logs -f file-server`
 - Live logs in browser: `{FILE_SERVER_PUBLIC_URL}/logs`
 - "Session expired" on callbacks → check handler ordering in `handle_callback()`
+- YouTube `HTTP Error 403: Forbidden` → usually a broken POT token. `pot-server` is built from `pot-server/Dockerfile` because the upstream `brainicism/bgutil-ytdlp-pot-provider` image ships without `libexpat1`, which `canvas` needs for the integrity attestation. Without it, `generateTokenMinter` falls back to a degraded POT and YouTube rejects media URLs with 403.
