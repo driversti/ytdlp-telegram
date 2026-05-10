@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-05-10
+
+### Fixed
+- Unlisted YouTube videos failing with "This video is not available". Added `_YOUTUBE_EXTRACTOR_ARGS` in `bot/downloader.py` that overrides yt-dlp's default `android_vr` player client with `mweb,web,android,ios`, applied to all four `ydl_opts` blocks (format detection, get_info, playlist extraction, download).
+
+### Changed
+- Bumped `yt-dlp` minimum to `>=2026.3.17` for upstream YouTube fixes.
+
+## [0.1.10] - 2026-04-20
+
+### Fixed
+- YouTube `HTTP Error 403: Forbidden` caused by degraded POT tokens. The custom `pot-server` Dockerfile now installs `libexpat1`, which the native `canvas` module (used by `jsdom` for proof-of-origin attestation) requires.
+
+### Changed
+- Pinned `bgutil-ytdlp-pot-provider` to `>=1.3.1` to match the pot-server image and avoid version drift.
+
 ## [0.1.9] - 2024-01-19
 
 ### Added
