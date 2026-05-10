@@ -1,4 +1,6 @@
 import logging
+import platform
+import time
 from pathlib import Path
 
 from telegram import Update, InputFile
@@ -46,8 +48,30 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
+# Captured at module import time so /about can report uptime since the
+# bot process started, not since the first message was handled.
+_BOT_START_TIME = time.time()
+
 # Store active downloads by message_id
 active_downloads: dict[int, dict] = {}
+
+
+def _format_uptime(seconds: float) -> str:
+    """Format a duration in seconds as e.g. '2d 4h 17m' or '47s' for short uptimes."""
+    total = int(seconds)
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    if not parts:
+        parts.append(f"{secs}s")
+    return " ".join(parts)
 
 
 @whitelist_only
@@ -90,7 +114,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Files up to 50MB can be sent directly in Telegram.\n"
         "Larger files are saved to the server.\n\n"
         "*Supported Platforms:*\n"
-        "YouTube, Instagram, Twitter/X, Facebook, TikTok, Vimeo, Reddit, Twitch, and 1000+ more!",
+        "YouTube, Instagram, Twitter/X, Facebook, TikTok, Vimeo, Reddit, Twitch, and 1000+ more!\n\n"
+        "*Other Commands:*\n"
+        "/status - Queue status\n"
+        "/stats - Download statistics\n"
+        "/health - System health\n"
+        "/about - Bot version and host info",
         parse_mode="Markdown"
     )
 
@@ -165,6 +194,38 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "• Status: ❌ Disconnected\n"
 
     await update.message.reply_text(text, parse_mode="Markdown")
+
+
+@whitelist_only
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /about command - show bot metadata and host details."""
+    import yt_dlp
+    from config import __version__
+
+    uptime = _format_uptime(time.time() - _BOT_START_TIME)
+
+    text = (
+        "ℹ️ *About this bot*\n\n"
+        "*🤖 Bot*\n"
+        f"• Name: ytdlp-telegram\n"
+        f"• Version: `{__version__}`\n"
+        "• License: MIT\n"
+        "• Source: https://github.com/driversti/ytdlp-telegram\n\n"
+        "*🖥️ Server*\n"
+        f"• Host: `{platform.node() or 'unknown'}`\n"
+        f"• OS: {platform.system()} {platform.release()}\n"
+        f"• Architecture: {platform.machine()}\n\n"
+        "*🐍 Runtime*\n"
+        f"• Python: {platform.python_version()}\n"
+        f"• yt-dlp: {yt_dlp.version.__version__}\n\n"
+        f"*⏱️ Uptime:* {uptime}"
+    )
+
+    await update.message.reply_text(
+        text,
+        parse_mode="Markdown",
+        disable_web_page_preview=True,
+    )
 
 
 @whitelist_only
@@ -849,6 +910,7 @@ def register_handlers(app: Application):
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("health", health_command))
+    app.add_handler(CommandHandler("about", about_command))
 
     # Callback queries (inline keyboards)
     app.add_handler(CallbackQueryHandler(handle_callback))

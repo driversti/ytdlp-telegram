@@ -100,6 +100,7 @@ User message → Whitelist check → Intent parsing (LLM/heuristics)
 - `/status` - Check download queue status
 - `/stats` - View download statistics
 - `/health` - System health check
+- `/about` - Bot version and host information
 
 ### Downloading
 
