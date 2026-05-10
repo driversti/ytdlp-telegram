@@ -19,6 +19,17 @@ from config import get_config
 logger = logging.getLogger(__name__)
 
 
+# Default YouTube player clients. The yt-dlp default (`android_vr`) cannot
+# extract unlisted videos — they surface as "This video is not available".
+# `mweb`/`web`/`android`/`ios` handle unlisted; the POT-server provides the
+# GVS PO Token they require for media URLs.
+_YOUTUBE_EXTRACTOR_ARGS = {
+    "youtube": {
+        "player_client": ["mweb", "web", "android", "ios"],
+    },
+}
+
+
 class DownloadFormat(Enum):
     AUDIO = "audio"
     VIDEO = "video"
@@ -300,6 +311,7 @@ class Downloader:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": False,
+                "extractor_args": _YOUTUBE_EXTRACTOR_ARGS,
             }
 
             try:
@@ -377,6 +389,7 @@ class Downloader:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": "in_playlist",
+                "extractor_args": _YOUTUBE_EXTRACTOR_ARGS,
             }
 
             try:
@@ -422,6 +435,7 @@ class Downloader:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": "in_playlist",  # Only get basic info, don't resolve each video
+                "extractor_args": _YOUTUBE_EXTRACTOR_ARGS,
             }
 
             try:
@@ -513,7 +527,7 @@ class Downloader:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,  # Download single video by default
-            # Let yt-dlp use default clients - PO Token provider will handle auth
+            "extractor_args": _YOUTUBE_EXTRACTOR_ARGS,
         }
 
         if is_audio:
