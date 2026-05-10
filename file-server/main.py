@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="YT-DLP File Server",
     description="File server for large downloads from ytdlp-telegram bot",
-    version="0.1.4",
+    version="0.1.5",
 )
 
 # Session middleware for admin authentication
