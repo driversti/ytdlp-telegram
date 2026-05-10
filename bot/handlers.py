@@ -74,6 +74,37 @@ def _format_uptime(seconds: float) -> str:
     return " ".join(parts)
 
 
+def _get_local_ip() -> str:
+    """Return the primary outbound LAN IP, or 'unavailable' if not determinable.
+
+    Uses a UDP socket connect to a public address — no packets are actually
+    sent, but the kernel picks the source IP of the route to that address.
+    """
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "unavailable"
+    finally:
+        s.close()
+
+
+async def _get_public_ip() -> str:
+    """Fetch the public IPv4 from api.ipify.org, or 'unavailable' on failure."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get("https://api.ipify.org")
+            response.raise_for_status()
+            return response.text.strip() or "unavailable"
+    except Exception:
+        return "unavailable"
+
+
 @whitelist_only
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
@@ -203,6 +234,8 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from config import __version__
 
     uptime = _format_uptime(time.time() - _BOT_START_TIME)
+    local_ip = _get_local_ip()
+    public_ip = await _get_public_ip()
 
     text = (
         "ℹ️ *About this bot*\n\n"
@@ -214,7 +247,9 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*🖥️ Server*\n"
         f"• Host: `{platform.node() or 'unknown'}`\n"
         f"• OS: {platform.system()} {platform.release()}\n"
-        f"• Architecture: {platform.machine()}\n\n"
+        f"• Architecture: {platform.machine()}\n"
+        f"• LAN IP: `{local_ip}`\n"
+        f"• Public IP: `{public_ip}`\n\n"
         "*🐍 Runtime*\n"
         f"• Python: {platform.python_version()}\n"
         f"• yt-dlp: {yt_dlp.version.__version__}\n\n"
