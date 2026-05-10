@@ -1,7 +1,5 @@
-import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
 
 from telegram import Update, InputFile
 from telegram.ext import (
@@ -37,11 +35,9 @@ from bot.downloader import (
     DownloadQuality,
     DynamicQuality,
     DownloadTask,
-    PlaylistInfo,
     download_queue,
-    extract_urls,
 )
-from bot.storage import is_file_within_limit, get_file_size_mb, cleanup_file, detect_platform
+from bot.storage import is_file_within_limit, detect_platform
 from bot.file_server_client import file_server_client
 from bot.llm_service import llm_service
 from bot.stats_service import stats_service
@@ -148,12 +144,12 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         ollama_available = await llm_service.is_available()
         if ollama_available:
-            text += f"• Status: ✅ Connected\n"
+            text += "• Status: ✅ Connected\n"
             text += f"• Model: {config.ollama_model}\n\n"
         else:
-            text += f"• Status: ❌ Disconnected\n\n"
+            text += "• Status: ❌ Disconnected\n\n"
     except Exception:
-        text += f"• Status: ❌ Error checking\n\n"
+        text += "• Status: ❌ Error checking\n\n"
 
     # File server status
     text += "*File Server:*\n"
@@ -162,11 +158,11 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(f"{config.file_server_url}/health")
             if response.status_code == 200:
-                text += f"• Status: ✅ Connected\n"
+                text += "• Status: ✅ Connected\n"
             else:
                 text += f"• Status: ⚠️ Error ({response.status_code})\n"
     except Exception:
-        text += f"• Status: ❌ Disconnected\n"
+        text += "• Status: ❌ Disconnected\n"
 
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -195,7 +191,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # User stats
     if user_stats:
-        text += f"*Your stats:*\n"
+        text += "*Your stats:*\n"
         text += f"• Downloads: {user_stats.total_downloads}\n"
         text += f"• Total size: {user_stats.total_size_mb:.1f} MB\n"
         text += f"• Audio: {user_stats.audio_downloads} | Video: {user_stats.video_downloads}\n"
@@ -451,15 +447,11 @@ async def handle_admin_callback(query, context: ContextTypes.DEFAULT_TYPE, actio
         await query.answer("Invalid user ID", show_alert=True)
         return
 
-    # Get user info before decision
-    user_record = user_service.get_user(telegram_id)
-    user_display = user_record.display_name if user_record else str(telegram_id)
-
     if decision == "approve":
         success = user_service.approve_user(telegram_id, admin_user.id)
         if success:
             await query.edit_message_text(
-                query.message.text + f"\n\n✅ *Approved* by you"
+                query.message.text + "\n\n✅ *Approved* by you"
             , parse_mode="Markdown")
 
             # Notify the user
@@ -482,7 +474,7 @@ async def handle_admin_callback(query, context: ContextTypes.DEFAULT_TYPE, actio
         success = user_service.deny_user(telegram_id, admin_user.id)
         if success:
             await query.edit_message_text(
-                query.message.text + f"\n\n❌ *Denied* by you"
+                query.message.text + "\n\n❌ *Denied* by you"
             , parse_mode="Markdown")
 
             # Notify the user
@@ -508,7 +500,7 @@ async def _handle_format_selection(query, context, url: str, is_audio: bool):
     emoji = "🎵" if is_audio else "🎬"
 
     # Show waiting message
-    await query.edit_message_text(f"⏳ Please wait, analyzing available qualities...")
+    await query.edit_message_text("⏳ Please wait, analyzing available qualities...")
 
     # Get available formats
     downloader = Downloader()

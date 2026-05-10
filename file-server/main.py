@@ -4,13 +4,12 @@ import secrets
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Form, Depends
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
-from itsdangerous import URLSafeSerializer
 
 from config import config
 from services.file_service import file_service

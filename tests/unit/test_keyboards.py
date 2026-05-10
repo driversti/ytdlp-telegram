@@ -1,6 +1,5 @@
 """Tests for bot/keyboards.py module."""
 
-import pytest
 
 from bot.keyboards import (
     format_selection_keyboard,

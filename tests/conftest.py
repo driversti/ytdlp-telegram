@@ -39,6 +39,7 @@ def mock_config(temp_download_dir, monkeypatch):
     test_config = Config(
         telegram_bot_token="test-token-123",
         allowed_user_ids={123, 456, 789},
+        admin_user_id=None,
         ollama_url="http://localhost:11434",
         ollama_model="llama3.2:3b",
         download_path=str(temp_download_dir),

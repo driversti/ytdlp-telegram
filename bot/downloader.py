@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional, Union
@@ -10,11 +10,11 @@ from collections import deque
 
 import yt_dlp
 
-# Dedicated thread pool for downloads to avoid default executor issues
-_download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ytdlp")
-
 from bot.storage import get_platform_directory, sanitize_filename, get_file_size_mb
 from config import get_config
+
+# Dedicated thread pool for downloads to avoid default executor issues
+_download_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ytdlp")
 
 logger = logging.getLogger(__name__)
 

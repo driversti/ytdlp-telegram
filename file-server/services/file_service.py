@@ -131,7 +131,6 @@ class FileService:
         if not path.exists():
             return None
 
-        token_info = token_service.get_token_info(token)
         stat = path.stat()
 
         return FileInfo(

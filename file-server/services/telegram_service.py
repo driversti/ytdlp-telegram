@@ -1,7 +1,6 @@
 """Telegram notification service for file server."""
 
 import logging
-from typing import Optional
 
 import httpx
 
