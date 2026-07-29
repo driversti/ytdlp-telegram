@@ -8,12 +8,11 @@ are rendered, so that logging we do not control is covered too.
 
 import logging
 from collections.abc import Iterable
-from typing import Optional
 
 REDACTED = "***REDACTED***"
 
 
-def redact(text: str, secrets: Iterable[Optional[str]]) -> str:
+def redact(text: str, secrets: Iterable[str | None]) -> str:
     """Replace every occurrence of each secret in ``text``."""
     for secret in secrets:
         # An empty needle matches between every character, and an unset env
@@ -37,10 +36,10 @@ class RedactingFormatter(logging.Formatter):
 
     def __init__(
         self,
-        fmt: Optional[str] = None,
-        datefmt: Optional[str] = None,
-        secrets: Iterable[Optional[str]] = (),
-        inner: Optional[logging.Formatter] = None,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        secrets: Iterable[str | None] = (),
+        inner: logging.Formatter | None = None,
         **kwargs,
     ):
         super().__init__(fmt, datefmt, **kwargs)
@@ -53,8 +52,8 @@ class RedactingFormatter(logging.Formatter):
 
 
 def install_secret_redaction(
-    secrets: Iterable[Optional[str]],
-    logger: Optional[logging.Logger] = None,
+    secrets: Iterable[str | None],
+    logger: logging.Logger | None = None,
 ) -> None:
     """Retrofit every handler on ``logger`` (root by default) with redaction.
 

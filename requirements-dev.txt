@@ -9,4 +9,8 @@ pytest-mock>=3.12.0
 respx>=0.20.0
 
 # Code quality
-ruff>=0.1.0
+# Pinned: an unbounded range makes CI fail on someone else's schedule. ruff
+# 0.16.0 enabled rules that flag 91 pre-existing issues across this repo, which
+# turned main red without a single line of code changing. Bump deliberately,
+# with the cleanup in the same commit.
+ruff==0.15.12
