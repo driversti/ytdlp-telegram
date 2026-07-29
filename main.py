@@ -13,11 +13,11 @@ from pathlib import Path
 
 from telegram.ext import Application
 
-from config import get_config
 from bot.handlers import register_handlers
 from bot.redaction import install_secret_redaction
 from bot.startup import run_bot
 from bot.storage import ensure_directories_exist
+from config import get_config
 
 # Configure logging
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

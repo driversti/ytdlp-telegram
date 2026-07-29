@@ -1,22 +1,22 @@
 """Tests for bot/keyboards.py module."""
 
 
+from bot.downloader import AudioFormat, VideoFormat
 from bot.keyboards import (
-    format_selection_keyboard,
-    audio_quality_keyboard,
-    video_quality_keyboard,
-    dynamic_video_quality_keyboard,
-    dynamic_audio_quality_keyboard,
-    playlist_confirmation_keyboard,
-    file_delete_keyboard,
-    parse_callback_data,
+    CANCEL_PREFIX,
+    CONFIRM_PREFIX,
+    DELETE_PREFIX,
     FORMAT_PREFIX,
     QUALITY_PREFIX,
-    CONFIRM_PREFIX,
-    CANCEL_PREFIX,
-    DELETE_PREFIX,
+    audio_quality_keyboard,
+    dynamic_audio_quality_keyboard,
+    dynamic_video_quality_keyboard,
+    file_delete_keyboard,
+    format_selection_keyboard,
+    parse_callback_data,
+    playlist_confirmation_keyboard,
+    video_quality_keyboard,
 )
-from bot.downloader import VideoFormat, AudioFormat
 
 
 class TestCallbackDataPrefixes:

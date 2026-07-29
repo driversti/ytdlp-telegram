@@ -3,12 +3,11 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import httpx
 
-from config import get_config
 from bot.downloader import extract_urls
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ class ParsedIntent:
     wants_audio: bool
     wants_video: bool
     is_download_request: bool
-    suggested_filename: Optional[str] = None
+    suggested_filename: str | None = None
     raw_message: str = ""
 
 
@@ -33,7 +32,7 @@ class LLMService:
 
     def __init__(self):
         self.config = get_config()
-        self._available: Optional[bool] = None
+        self._available: bool | None = None
         self._available_checked_at: float = 0.0
 
     def _is_cache_valid(self) -> bool:
@@ -104,13 +103,13 @@ class LLMService:
                         suggested_filename=llm_result.suggested_filename,
                         raw_message=message,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
                 logger.warning(f"LLM parsing failed, using heuristics: {e}")
 
         # Fallback: heuristic parsing
         return self._parse_heuristic(message, urls)
 
-    async def _parse_with_llm(self, message: str) -> Optional[ParsedIntent]:
+    async def _parse_with_llm(self, message: str) -> ParsedIntent | None:
         """Parse message using Ollama LLM."""
         prompt = f"""Analyze this message and extract download intent. Respond with JSON only.
 
@@ -162,7 +161,7 @@ Respond with valid JSON only, no explanation:
 
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM JSON response")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
             logger.error(f"LLM request failed: {e}")
 
         return None
@@ -229,7 +228,7 @@ Respond with just the suggested filename, no quotes, no extension:"""
                     if suggested and len(suggested) < 200:
                         return suggested
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
             logger.warning(f"Filename suggestion failed: {e}")
 
         return title

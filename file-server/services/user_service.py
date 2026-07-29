@@ -3,9 +3,8 @@
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from config import config
 
@@ -18,15 +17,15 @@ class User:
 
     id: int
     telegram_id: int
-    username: Optional[str]
-    first_name: Optional[str]
-    last_name: Optional[str]
+    username: str | None
+    first_name: str | None
+    last_name: str | None
     status: str  # pending, approved, denied
     source: str  # request, admin_added
     created_at: datetime
     updated_at: datetime
-    approved_at: Optional[datetime]
-    approved_by: Optional[int]
+    approved_at: datetime | None
+    approved_by: int | None
 
     @classmethod
     def from_row(cls, row: tuple) -> "User":
@@ -137,7 +136,7 @@ class UserService:
             logger.exception("Failed to get all users")
             return []
 
-    def get_user(self, telegram_id: int) -> Optional[User]:
+    def get_user(self, telegram_id: int) -> User | None:
         """Get a user by their Telegram ID."""
         self._ensure_db_exists()
         try:
@@ -154,7 +153,7 @@ class UserService:
     def add_user(self, telegram_id: int) -> bool:
         """Add a user directly (approved status)."""
         self._ensure_db_exists()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
@@ -177,7 +176,7 @@ class UserService:
     def approve_user(self, telegram_id: int) -> bool:
         """Approve a user's access request."""
         self._ensure_db_exists()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
@@ -200,7 +199,7 @@ class UserService:
     def deny_user(self, telegram_id: int) -> bool:
         """Deny a user's access request."""
         self._ensure_db_exists()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(

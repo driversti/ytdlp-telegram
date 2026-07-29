@@ -2,9 +2,8 @@
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from config import config
 
@@ -40,7 +39,7 @@ class LogStats:
 
     file_size_bytes: int
     file_size_mb: float
-    last_modified: Optional[datetime]
+    last_modified: datetime | None
     exists: bool
 
     def to_dict(self) -> dict:
@@ -56,7 +55,7 @@ class LogStats:
 class LogService:
     """Service for reading and parsing log files."""
 
-    def __init__(self, log_path: Optional[Path] = None):
+    def __init__(self, log_path: Path | None = None):
         """Initialize the log service."""
         self.log_path = log_path or Path(config.download_path) / "bot.log"
 
@@ -74,11 +73,11 @@ class LogService:
         return LogStats(
             file_size_bytes=stat.st_size,
             file_size_mb=stat.st_size / (1024 * 1024),
-            last_modified=datetime.fromtimestamp(stat.st_mtime),
+            last_modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).astimezone(),
             exists=True,
         )
 
-    def parse_log_line(self, line: str) -> Optional[LogEntry]:
+    def parse_log_line(self, line: str) -> LogEntry | None:
         """Parse a single log line into a LogEntry."""
         line = line.strip()
         if not line:
@@ -104,8 +103,8 @@ class LogService:
     def read_logs(
         self,
         lines: int = 200,
-        level_filter: Optional[str] = None,
-        search: Optional[str] = None,
+        level_filter: str | None = None,
+        search: str | None = None,
     ) -> list[LogEntry]:
         """
         Read recent log entries with optional filtering.
@@ -125,7 +124,7 @@ class LogService:
         try:
             with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
                 all_lines = f.readlines()
-        except (IOError, OSError):
+        except OSError:
             return []
 
         # Parse all lines first

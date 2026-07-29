@@ -1,6 +1,5 @@
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import httpx
 
@@ -21,7 +20,7 @@ class FileServerClient:
     """HTTP client for communicating with the file server."""
 
     def __init__(self):
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
@@ -40,7 +39,7 @@ class FileServerClient:
         config = get_config()
         return config.file_server_url
 
-    async def generate_download_link(self, filepath: str) -> Optional[DownloadLink]:
+    async def generate_download_link(self, filepath: str) -> DownloadLink | None:
         """
         Generate a download link for a file.
 

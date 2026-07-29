@@ -1,9 +1,9 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 from typing import TYPE_CHECKING
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 if TYPE_CHECKING:
-    from bot.downloader import VideoFormat, AudioFormat
+    from bot.downloader import AudioFormat, VideoFormat
 
 
 # Callback data prefixes

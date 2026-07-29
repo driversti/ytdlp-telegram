@@ -1,8 +1,7 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from config import config
 from services.token_service import token_service
@@ -20,7 +19,7 @@ class FileInfo:
     size_mb: float
     platform: str
     created_at: datetime
-    token: Optional[str] = None
+    token: str | None = None
 
 
 class FileService:
@@ -83,7 +82,7 @@ class FileService:
                     size_bytes=stat.st_size,
                     size_mb=stat.st_size / (1024 * 1024),
                     platform=self._get_platform_from_path(media_file),
-                    created_at=datetime.fromtimestamp(stat.st_mtime),
+                    created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).astimezone(),
                     token=token_by_path.get(filepath_str),
                 )
             )
@@ -109,7 +108,7 @@ class FileService:
 
         return grouped
 
-    def get_file_by_token(self, token: str) -> Optional[FileInfo]:
+    def get_file_by_token(self, token: str) -> FileInfo | None:
         """
         Get file info by token.
 
@@ -139,7 +138,7 @@ class FileService:
             size_bytes=stat.st_size,
             size_mb=stat.st_size / (1024 * 1024),
             platform=self._get_platform_from_path(path),
-            created_at=datetime.fromtimestamp(stat.st_mtime),
+            created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).astimezone(),
             token=token,
         )
 
@@ -174,7 +173,7 @@ class FileService:
             logger.error(f"Failed to delete file {filepath}: {e}")
             return False
 
-    def get_or_create_token(self, filepath: str) -> Optional[str]:
+    def get_or_create_token(self, filepath: str) -> str | None:
         """
         Get existing token for filepath or create a new one.
 

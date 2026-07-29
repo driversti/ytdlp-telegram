@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -137,7 +137,7 @@ def mock_telegram_context():
 @pytest.fixture
 def create_temp_file(tmp_path):
     """Factory fixture to create temporary files."""
-    def _create_file(name: str, content: bytes = b"test content", subdir: str = None):
+    def _create_file(name: str, content: bytes = b"test content", subdir: str | None = None):
         if subdir:
             target_dir = tmp_path / subdir
             target_dir.mkdir(parents=True, exist_ok=True)

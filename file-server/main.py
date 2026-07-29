@@ -4,19 +4,19 @@ import secrets
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from services.file_service import file_service
+from services.log_service import log_service
+from services.telegram_service import telegram_service
+from services.token_service import token_service
+from services.user_service import user_service
 from starlette.middleware.sessions import SessionMiddleware
 
 from config import config
-from services.file_service import file_service
-from services.log_service import log_service
-from services.token_service import token_service
-from services.user_service import user_service
-from services.telegram_service import telegram_service
 
 logging.basicConfig(
     level=logging.INFO,

@@ -3,17 +3,17 @@
 import pytest
 
 from bot.downloader import (
-    extract_urls,
-    DynamicQuality,
-    DownloadQuality,
-    DownloadTask,
-    DownloadResult,
-    MediaInfo,
-    VideoFormat,
+    URL_PATTERN,
     AudioFormat,
     AvailableFormats,
     Downloader,
-    URL_PATTERN,
+    DownloadQuality,
+    DownloadResult,
+    DownloadTask,
+    DynamicQuality,
+    MediaInfo,
+    VideoFormat,
+    extract_urls,
 )
 
 

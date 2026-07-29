@@ -3,9 +3,8 @@
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from config import get_config
 
@@ -18,15 +17,15 @@ class User:
 
     id: int
     telegram_id: int
-    username: Optional[str]
-    first_name: Optional[str]
-    last_name: Optional[str]
+    username: str | None
+    first_name: str | None
+    last_name: str | None
     status: str  # pending, approved, denied
     source: str  # request, admin_added
     created_at: datetime
     updated_at: datetime
-    approved_at: Optional[datetime]
-    approved_by: Optional[int]
+    approved_at: datetime | None
+    approved_by: int | None
 
     @classmethod
     def from_row(cls, row: tuple) -> "User":
@@ -118,7 +117,7 @@ class UserService:
             logger.exception("Failed to check user status")
             return False
 
-    def get_user(self, telegram_id: int) -> Optional[User]:
+    def get_user(self, telegram_id: int) -> User | None:
         """Get a user by their Telegram ID."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -131,7 +130,7 @@ class UserService:
             logger.exception("Failed to get user")
             return None
 
-    def get_user_status(self, telegram_id: int) -> Optional[str]:
+    def get_user_status(self, telegram_id: int) -> str | None:
         """Get the status of a user (pending, approved, denied)."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -147,16 +146,16 @@ class UserService:
     def create_access_request(
         self,
         telegram_id: int,
-        username: Optional[str] = None,
-        first_name: Optional[str] = None,
-        last_name: Optional[str] = None,
+        username: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
     ) -> bool:
         """
         Create an access request for a user.
 
         Returns True if request was created, False if user already exists.
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
@@ -179,7 +178,7 @@ class UserService:
 
     def approve_user(self, telegram_id: int, approved_by: int) -> bool:
         """Approve a user's access request."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
@@ -201,7 +200,7 @@ class UserService:
 
     def deny_user(self, telegram_id: int, denied_by: int) -> bool:
         """Deny a user's access request."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
@@ -225,12 +224,12 @@ class UserService:
         self,
         telegram_id: int,
         added_by: int,
-        username: Optional[str] = None,
-        first_name: Optional[str] = None,
-        last_name: Optional[str] = None,
+        username: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
     ) -> bool:
         """Add a user directly (by admin)."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(

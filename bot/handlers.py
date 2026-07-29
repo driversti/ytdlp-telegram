@@ -3,46 +3,46 @@ import platform
 import time
 from pathlib import Path
 
-from telegram import Update, InputFile
+from telegram import InputFile, Update
 from telegram.ext import (
-    ContextTypes,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
     Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
 )
 
-from bot.middleware import whitelist_only
-from bot.keyboards import (
-    format_selection_keyboard,
-    audio_quality_keyboard,
-    video_quality_keyboard,
-    dynamic_video_quality_keyboard,
-    dynamic_audio_quality_keyboard,
-    playlist_confirmation_keyboard,
-    file_delete_keyboard,
-    admin_access_decision_keyboard,
-    parse_callback_data,
-    FORMAT_PREFIX,
-    QUALITY_PREFIX,
-    CONFIRM_PREFIX,
-    CANCEL_PREFIX,
-    DELETE_PREFIX,
-    ACCESS_PREFIX,
-    ADMIN_PREFIX,
-)
 from bot.downloader import (
     Downloader,
     DownloadQuality,
-    DynamicQuality,
     DownloadTask,
+    DynamicQuality,
     download_queue,
 )
-from bot.storage import is_file_within_limit, detect_platform
 from bot.file_server_client import file_server_client
+from bot.keyboards import (
+    ACCESS_PREFIX,
+    ADMIN_PREFIX,
+    CANCEL_PREFIX,
+    CONFIRM_PREFIX,
+    DELETE_PREFIX,
+    FORMAT_PREFIX,
+    QUALITY_PREFIX,
+    admin_access_decision_keyboard,
+    audio_quality_keyboard,
+    dynamic_audio_quality_keyboard,
+    dynamic_video_quality_keyboard,
+    file_delete_keyboard,
+    format_selection_keyboard,
+    parse_callback_data,
+    playlist_confirmation_keyboard,
+    video_quality_keyboard,
+)
 from bot.llm_service import llm_service
+from bot.middleware import whitelist_only
 from bot.stats_service import stats_service
+from bot.storage import detect_platform, is_file_within_limit
 from bot.user_service import user_service
 from config import get_config
 
@@ -101,7 +101,7 @@ async def _get_public_ip() -> str:
             response = await client.get("https://api.ipify.org")
             response.raise_for_status()
             return response.text.strip() or "unavailable"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
         return "unavailable"
 
 
@@ -208,7 +208,7 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"• Model: {config.ollama_model}\n\n"
         else:
             text += "• Status: ❌ Disconnected\n\n"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
         text += "• Status: ❌ Error checking\n\n"
 
     # File server status
@@ -221,7 +221,7 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += "• Status: ✅ Connected\n"
             else:
                 text += f"• Status: ⚠️ Error ({response.status_code})\n"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
         text += "• Status: ❌ Disconnected\n"
 
     await update.message.reply_text(text, parse_mode="Markdown")
@@ -231,6 +231,7 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /about command - show bot metadata and host details."""
     import yt_dlp
+
     from config import __version__
 
     uptime = _format_uptime(time.time() - _BOT_START_TIME)
@@ -871,7 +872,7 @@ async def handle_download_complete(bot, chat_id: int, message_id: int, filepath:
         )
 
         try:
-            with open(filepath, "rb") as f:
+            with open(filepath, "rb") as f:  # noqa: ASYNC230 — only opens the handle; PTB streams it during upload
                 if filepath.suffix.lower() == ".mp3":
                     await bot.send_audio(
                         chat_id=chat_id,
@@ -893,7 +894,7 @@ async def handle_download_complete(bot, chat_id: int, message_id: int, filepath:
                 text=f"✅ Downloaded: {title}\n📁 Size: {filesize_mb:.1f} MB"
             )
 
-        except (OSError, IOError):
+        except OSError:
             logger.exception(f"Failed to send file: {filepath}")
             await bot.edit_message_text(
                 chat_id=chat_id,

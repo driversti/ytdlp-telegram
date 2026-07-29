@@ -1,6 +1,6 @@
+import logging
 import os
 import re
-import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -64,9 +64,7 @@ def is_valid_url(url: str) -> bool:
         if not parsed.netloc:
             return False
         # Basic sanity check on domain format
-        if len(parsed.netloc) > 253:  # Max domain length
-            return False
-        return True
+        return len(parsed.netloc) <= 253  # Max domain length
     except (ValueError, AttributeError):
         return False
 

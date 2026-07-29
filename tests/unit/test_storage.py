@@ -4,11 +4,11 @@
 import pytest
 
 from bot.storage import (
+    PLATFORM_PATTERNS,
     detect_platform,
-    sanitize_filename,
     get_file_size,
     get_file_size_mb,
-    PLATFORM_PATTERNS,
+    sanitize_filename,
 )
 
 

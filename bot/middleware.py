@@ -1,13 +1,14 @@
 import logging
+from collections.abc import Callable, Coroutine
 from functools import wraps
-from typing import Callable, Coroutine, Any
+from typing import Any
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import get_config
+from bot.keyboards import ACCESS_PREFIX, ADMIN_PREFIX, request_access_keyboard
 from bot.user_service import user_service
-from bot.keyboards import request_access_keyboard, ACCESS_PREFIX, ADMIN_PREFIX
+from config import get_config
 
 logger = logging.getLogger(__name__)
 

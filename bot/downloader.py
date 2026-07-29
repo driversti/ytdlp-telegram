@@ -1,16 +1,17 @@
 import asyncio
 import logging
 import re
+from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, Union
-from collections import deque
+from typing import Union
 
 import yt_dlp
 
-from bot.storage import get_platform_directory, sanitize_filename, get_file_size_mb
+from bot.storage import get_file_size_mb, get_platform_directory, sanitize_filename
 from config import get_config
 
 # Dedicated thread pool for downloads to avoid default executor issues
@@ -54,7 +55,7 @@ class DownloadTask:
     quality: Union[DownloadQuality, "DynamicQuality"]
     chat_id: int
     message_id: int
-    progress_callback: Optional[Callable[[float, str], asyncio.Future]] = None
+    progress_callback: Callable[[float, str], asyncio.Future] | None = None
     original_url: str = ""  # Full URL if truncated
 
     def __post_init__(self):
@@ -67,7 +68,7 @@ class DownloadResult:
     """Result of a download operation."""
 
     success: bool
-    filepath: Optional[Path] = None
+    filepath: Path | None = None
     title: str = ""
     duration: int = 0
     filesize_mb: float = 0.0
@@ -84,7 +85,7 @@ class MediaInfo:
     duration: int
     is_playlist: bool
     playlist_count: int
-    thumbnail: Optional[str] = None
+    thumbnail: str | None = None
     uploader: str = ""
     url: str = ""
 
@@ -138,7 +139,7 @@ class AvailableFormats:
     """Container for available formats from a URL."""
     video_formats: list[VideoFormat]
     audio_formats: list[AudioFormat]
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
@@ -164,7 +165,7 @@ class DownloadQueue:
 
     def __init__(self):
         self._queue: deque[DownloadTask] = deque()
-        self._current_task: Optional[DownloadTask] = None
+        self._current_task: DownloadTask | None = None
         self._lock = asyncio.Lock()
         self._processing = False
 
@@ -264,7 +265,7 @@ class Downloader:
     def __init__(self):
         self.config = get_config()
 
-    def _get_format_string(self, quality: Union[DownloadQuality, DynamicQuality]) -> str:
+    def _get_format_string(self, quality: DownloadQuality | DynamicQuality) -> str:
         """Get yt-dlp format string for quality."""
         if isinstance(quality, DynamicQuality):
             return quality.get_format_string()
@@ -282,7 +283,7 @@ class Downloader:
         }
         return format_map.get(quality, "best")
 
-    def _is_audio_format(self, quality: Union[DownloadQuality, DynamicQuality]) -> bool:
+    def _is_audio_format(self, quality: DownloadQuality | DynamicQuality) -> bool:
         """Check if quality is audio format."""
         if isinstance(quality, DynamicQuality):
             return quality.is_audio
@@ -368,7 +369,7 @@ class Downloader:
                 elif "age" in error_msg.lower():
                     error_msg = "Age-restricted content"
                 return AvailableFormats([], [], error=error_msg)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — best-effort boundary: an optional feature must not take the bot down
                 logger.error(f"Failed to get formats for {url}: {e}")
                 return AvailableFormats([], [], error=str(e))
 
@@ -381,7 +382,7 @@ class Downloader:
         except asyncio.TimeoutError:
             return AvailableFormats([], [], error="Format detection timed out")
 
-    async def get_info(self, url: str) -> Optional[MediaInfo]:
+    async def get_info(self, url: str) -> MediaInfo | None:
         """Get media information without downloading."""
 
         def _extract_info():
@@ -418,7 +419,7 @@ class Downloader:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _extract_info)
 
-    async def get_playlist_info(self, url: str, timeout: int = 60) -> Optional[PlaylistInfo]:
+    async def get_playlist_info(self, url: str, timeout: int = 60) -> PlaylistInfo | None:
         """
         Get detailed playlist information including entries.
 
@@ -497,7 +498,7 @@ class Downloader:
         self,
         url: str,
         quality: DownloadQuality,
-        progress_callback: Optional[Callable[[float, str], asyncio.Future]] = None,
+        progress_callback: Callable[[float, str], asyncio.Future] | None = None,
     ) -> DownloadResult:
         """
         Download media from URL.

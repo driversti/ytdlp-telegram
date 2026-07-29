@@ -1,10 +1,9 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Optional
 
 from config import config
 
@@ -52,14 +51,14 @@ class TokenService:
             token = str(uuid.uuid4())
             tokens[token] = {
                 "filepath": filepath,
-                "created_at": datetime.utcnow().isoformat() + "Z",
+                "created_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
                 "size_bytes": size_bytes,
             }
             self._save_tokens(tokens)
             logger.info(f"Generated token {token} for {filepath}")
             return token
 
-    def get_filepath(self, token: str) -> Optional[str]:
+    def get_filepath(self, token: str) -> str | None:
         """
         Get the filepath for a token.
 
@@ -75,7 +74,7 @@ class TokenService:
             return entry.get("filepath")
         return None
 
-    def get_token_info(self, token: str) -> Optional[dict]:
+    def get_token_info(self, token: str) -> dict | None:
         """
         Get full token information.
 
@@ -111,7 +110,7 @@ class TokenService:
         """Get all tokens with their info."""
         return self._load_tokens()
 
-    def find_token_by_filepath(self, filepath: str) -> Optional[str]:
+    def find_token_by_filepath(self, filepath: str) -> str | None:
         """
         Find a token by filepath.
 

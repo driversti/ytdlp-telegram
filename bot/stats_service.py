@@ -3,9 +3,8 @@
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from config import get_config
 
@@ -116,7 +115,7 @@ class StatsService:
         filesize_mb: float,
         title: str,
         user_id: int,
-    ) -> Optional[int]:
+    ) -> int | None:
         """
         Record a completed download.
 
@@ -130,7 +129,7 @@ class StatsService:
                     INSERT INTO downloads (url, platform, format_type, quality, filesize_mb, title, user_id, timestamp)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (url, platform, format_type, quality, filesize_mb, title, user_id, datetime.utcnow().isoformat()),
+                    (url, platform, format_type, quality, filesize_mb, title, user_id, datetime.now(timezone.utc).replace(tzinfo=None).isoformat()),
                 )
                 conn.commit()
                 return cursor.lastrowid
@@ -150,7 +149,7 @@ class StatsService:
                 total_size_mb = total_row[1]
 
                 # This month
-                first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                first_of_month = datetime.now(timezone.utc).replace(tzinfo=None).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 month_row = conn.execute(
                     "SELECT COUNT(*), COALESCE(SUM(filesize_mb), 0) FROM downloads WHERE timestamp >= ?",
                     (first_of_month.isoformat(),),
@@ -214,7 +213,7 @@ class StatsService:
                 users={},
             )
 
-    def get_user_stats(self, user_id: int) -> Optional[UserStats]:
+    def get_user_stats(self, user_id: int) -> UserStats | None:
         """Get statistics for a specific user."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -253,7 +252,7 @@ class StatsService:
             logger.exception("Failed to get user stats")
             return None
 
-    def get_recent_downloads(self, limit: int = 10, user_id: Optional[int] = None) -> list[DownloadRecord]:
+    def get_recent_downloads(self, limit: int = 10, user_id: int | None = None) -> list[DownloadRecord]:
         """Get recent downloads, optionally filtered by user."""
         try:
             with sqlite3.connect(self.db_path) as conn:
