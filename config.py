@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-__version__ = "0.1.14"
+__version__ = "0.1.15"
 
 load_dotenv()
 
