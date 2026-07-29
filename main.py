@@ -15,6 +15,8 @@ from telegram.ext import Application
 
 from config import get_config
 from bot.handlers import register_handlers
+from bot.redaction import install_secret_redaction
+from bot.startup import run_bot
 from bot.storage import ensure_directories_exist
 
 # Configure logging
@@ -63,6 +65,12 @@ def main():
 
     # Setup file logging after directories exist
     log_file = setup_file_logging(config.download_path)
+
+    # Must happen before anything can log the token. python-telegram-bot quotes
+    # it verbatim in InvalidToken and logs that itself, so redaction has to be
+    # in place on every handler before polling starts.
+    install_secret_redaction([config.telegram_bot_token])
+
     logger.info(f"Log file: {log_file}")
 
     logger.info("Starting ytdlp-telegram bot...")
@@ -79,7 +87,7 @@ def main():
 
     # Start the bot
     logger.info("Bot is running. Press Ctrl+C to stop.")
-    app.run_polling(allowed_updates=["message", "callback_query"])
+    run_bot(app)
 
 
 if __name__ == "__main__":
